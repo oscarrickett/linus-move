@@ -1,0 +1,19 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Redirecting…</title>
+  <script>
+    // GitHub Pages doesn't rewrite for SPAs; bounce unknown paths back to the
+    // app root, preserving any query string as a hash so the router can pick it up.
+    var p = window.location.pathname;
+    var repoBase = "/linus-move/";
+    var idx = p.indexOf(repoBase);
+    var rest = idx >= 0 ? p.slice(idx + repoBase.length) : "";
+    var qs = window.location.search;
+    var target = window.location.origin + repoBase + (rest ? "#/" + rest : "") + qs;
+    window.location.replace(target);
+  </script>
+</head>
+<body></body>
+</html>

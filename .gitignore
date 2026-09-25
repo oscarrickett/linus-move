@@ -1,0 +1,9 @@
+.DS_Store
+Thumbs.db
+node_modules/
+
+# By default config.js stays local so you can swap projects without touching git.
+# The anon key IS a public key (protected by RLS), so it's safe to commit.
+# When you're ready to deploy to GitHub Pages, either delete the line below
+# or run `git add -f src/config.js` once.
+src/config.js
