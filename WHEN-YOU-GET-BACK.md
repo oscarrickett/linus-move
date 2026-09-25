@@ -1,85 +1,117 @@
 # When you get back (about 12 minutes of work)
 
-Everything is committed under a neutral git identity
-(`Oscar Rickett <oscarrickett@users.noreply.github.com>`) and pushed to a
-temporary home:
+The full app is committed locally in `C:\Users\or\linus-move` on branch
+`main` under a neutral git identity
+(`Oscar Rickett <oscarrickett@users.noreply.github.com>`). It has NO
+remote — the earlier push to a work-account namespace was archived at
+your request and needs one manual click to fully delete (see step 0).
 
-**Repo:** <https://github.com/solidicon-ab/linus-move> (**private**)
+## 0. Delete the archived `solidicon-ab/linus-move` (30 sec)
 
-The `solidicon-ab` GitHub *user* account (not the org) owns it for now
-because that was the only `gh` auth on the machine. Step 0 below moves
-it to your personal `oscarrickett` account so nothing stays under a
-work-adjacent name. The committed code contains no personal data yet
-(the anon key and any Vault records will live in Supabase, not the repo).
+I created it earlier because that was the only `gh` auth on this
+machine, then archived it when you asked me to remove it. My token was
+missing `delete_repo` scope so I couldn't finish the delete. Either:
 
-## 0. Transfer the repo to `oscarrickett` (2 min)
+- Open <https://github.com/solidicon-ab/linus-move/settings> → scroll to
+  **Danger Zone** → **Delete this repository**, OR
+- Run:
+  ```powershell
+  gh auth refresh -h github.com -s delete_repo
+  gh repo delete solidicon-ab/linus-move --yes
+  ```
 
-On whichever computer you use next:
+The repo is private, archived (read-only), and contains no personal data
+(only the app code and the `xmqlbsouvpltxntdvfss` Supabase project ID,
+which is a URL not a secret).
+
+## 1. Get the code onto your other computer
+
+The local repo lives at `C:\Users\or\linus-move`. Pick whichever
+transport suits: zip and email/USB it to yourself, sync via any cloud
+folder, or push to a temporary private location first. If you already
+sync your home directory to a personal cloud drive, it's probably
+already there.
+
+Once on the other machine, from the folder root:
 
 ```powershell
-# You need gh signed in as oscarrickett for the transfer to land there.
+git remote -v          # should be empty (no origin yet)
+git log --oneline      # should show the two commits below
+```
+
+Expected commits:
+```
+0a10f4d Add hand-off checklist
+03deb53 Initial home board: static SPA + Supabase schema and seed
+```
+
+## 2. Create the repo under `oscarrickett` and push (2 min)
+
+On whichever machine has the code:
+
+```powershell
+# One-time: sign in as your personal account
 gh auth login --hostname github.com --web
-# choose your personal 'oscarrickett' account when prompted
+# When prompted, pick 'oscarrickett'. Grant the 'repo' scope.
 
-# Kick off the transfer (from solidicon-ab to oscarrickett).
-# You can run this from either machine; it doesn't need a local clone.
-gh api -X POST /repos/solidicon-ab/linus-move/transfer \
-  -f "new_owner=oscarrickett"
+cd <path-to>\linus-move
+
+# Create repo and push. Public because GitHub Pages needs paid plan for
+# private repos; there are no secrets in the tree.
+gh repo create oscarrickett/linus-move --public --source=. --remote=origin --push
+
+# Enable GitHub Pages from main branch, root.
+gh api -X POST /repos/oscarrickett/linus-move/pages \
+  -f "source[branch]=main" -f "source[path]=/"
 ```
 
-GitHub emails Linus... sorry, emails *oscarrickett* to accept the
-transfer. Accept it in the email or at
-<https://github.com/notifications>. The URL then becomes
-<https://github.com/oscarrickett/linus-move>.
+Live at <https://oscarrickett.github.io/linus-move/> within a minute.
 
-On the new machine, clone from the new URL:
+If you'd rather it stays private, GitHub Pages on private repos needs a
+paid plan. Alternative: serve locally with `python -m http.server` and
+share via a tunnel like Cloudflare Tunnel.
 
-```powershell
-cd C:\Users\<you>\
-git clone git@github.com:oscarrickett/linus-move.git
-cd linus-move
-git config user.email "oscarrickett@users.noreply.github.com"
-git config user.name  "Oscar Rickett"
-```
-
-If you clone before transferring: update the remote afterwards with
-`git remote set-url origin git@github.com:oscarrickett/linus-move.git`.
-
-Only 4 more things need you specifically. In order:
-
-## 1. Run the two SQL files in Supabase (2 min)
+## 3. Run the two SQL files in Supabase (2 min)
 
 Open <https://supabase.com/dashboard/project/xmqlbsouvpltxntdvfss/sql/new>
 
 - Paste the contents of `supabase/schema.sql`, click **Run**.
 - Open a fresh SQL query, paste `supabase/seed.sql`, click **Run**.
 
-Expected result: no errors. If you re-run either, they're idempotent so
-they won't duplicate anything.
+Both files are idempotent, so a re-run is safe.
 
-## 2. Paste the anon key into `src/config.js` (30 sec)
+## 4. Paste the anon key into `src/config.js` (30 sec)
 
 Open <https://supabase.com/dashboard/project/xmqlbsouvpltxntdvfss/settings/api>
 
 Copy the **anon public** key (the long JWT, NOT the `service_role` key).
-Open `C:\Users\or\linus-move\src\config.js` and replace
-`PASTE-ANON-KEY-HERE` with the key. The URL is already filled in.
+Open `src/config.js` and replace `PASTE-ANON-KEY-HERE` with the key.
+The URL is already filled in.
 
-## 3. Test locally (1 min)
+Commit and push:
+```powershell
+git add -f src/config.js
+git commit -m "Fill in Supabase config"
+git push
+```
+
+(`config.js` is gitignored by default, hence the `-f`.)
+
+## 5. Test locally (1 min)
 
 ```powershell
-cd C:\Users\or\linus-move
+cd <path-to>\linus-move
 python -m http.server 8080
 ```
 
 Open <http://localhost:8080>. You should see the sign-in screen.
 
-## 4. Invite yourself + Linus, then promote Linus (3 min)
+## 6. Invite yourself + Linus, then promote Linus (3 min)
 
 Open <https://supabase.com/dashboard/project/xmqlbsouvpltxntdvfss/auth/users>
 
-Click **Add user > Invite user**, invite your own email first. Set a
-display name of "Oscar" when you sign up. Then invite Linus at his email.
+Click **Add user → Invite user**, invite your own email first. Set the
+display name to "Oscar" when you sign up. Then invite Linus at his email.
 
 After Linus signs in for the first time, run this once in the SQL editor
 so his role changes from `helper` to `linus` (unlocks private records):
@@ -90,38 +122,9 @@ update public.profiles
  where display_name ilike 'linus%';   -- or match on the exact display name
 ```
 
-## 5. Push config.js and enable GitHub Pages (2 min)
-
-Assumes you've completed step 0 (repo now at `oscarrickett/linus-move`).
-
-```powershell
-cd C:\Users\<you>\linus-move
-
-# Include the filled-in config.js in the push. The anon key is public
-# (protected by RLS), so committing it is safe.
-git add -f src/config.js
-git commit -m "Fill in Supabase config"
-git push
-
-# Flip the repo to public so GitHub Pages works on the free plan.
-# There are no secrets in the code; the only sensitive data lives in
-# Supabase behind auth.
-gh repo edit oscarrickett/linus-move --visibility public --accept-visibility-change-consequences
-
-# Enable Pages from main branch, root.
-gh api -X POST /repos/oscarrickett/linus-move/pages \
-  -f "source[branch]=main" -f "source[path]=/"
-```
-
-Live at <https://oscarrickett.github.io/linus-move/> within a minute.
-
-If you'd rather keep it private, GitHub Pages on private repos needs a
-paid plan; alternative is to serve locally with `python -m http.server`
-and share via a tunnel like Cloudflare Tunnel.
-
 ## Notes
 
-- Nothing here is on Solidicon infrastructure or the Solidicon GitHub org.
+- Nothing is on Solidicon infrastructure or the Solidicon GitHub org.
 - The Supabase anon key is a public key protected by Row Level Security.
   Committing it is safe. The `service_role` key is not; never commit that.
 - File attachments are not wired up yet. Add them from Supabase Storage
@@ -131,7 +134,7 @@ and share via a tunnel like Cloudflare Tunnel.
 
 ## What I verified before you left
 
-- All 11 JS modules parse cleanly (node --check --input-type=module).
+- All 11 JS modules parse cleanly (`node --check --input-type=module`).
 - `seed/tasks.json` is valid JSON.
 - Static server returns 200 for every file in the tree.
 - `src/config.js` is not in the committed git tree (only
