@@ -1,10 +1,51 @@
-# When you get back (about 10 minutes of work)
+# When you get back (about 12 minutes of work)
 
-Everything is committed locally in `C:\Users\or\linus-move` on branch `main`
-under a neutral git identity (`Oscar Rickett <oscarrickett@users.noreply.github.com>`).
-Nothing has been pushed to any remote yet.
+Everything is committed under a neutral git identity
+(`Oscar Rickett <oscarrickett@users.noreply.github.com>`) and pushed to a
+temporary home:
 
-Only 4 things need you specifically. In order:
+**Repo:** <https://github.com/solidicon-ab/linus-move> (**private**)
+
+The `solidicon-ab` GitHub *user* account (not the org) owns it for now
+because that was the only `gh` auth on the machine. Step 0 below moves
+it to your personal `oscarrickett` account so nothing stays under a
+work-adjacent name. The committed code contains no personal data yet
+(the anon key and any Vault records will live in Supabase, not the repo).
+
+## 0. Transfer the repo to `oscarrickett` (2 min)
+
+On whichever computer you use next:
+
+```powershell
+# You need gh signed in as oscarrickett for the transfer to land there.
+gh auth login --hostname github.com --web
+# choose your personal 'oscarrickett' account when prompted
+
+# Kick off the transfer (from solidicon-ab to oscarrickett).
+# You can run this from either machine; it doesn't need a local clone.
+gh api -X POST /repos/solidicon-ab/linus-move/transfer \
+  -f "new_owner=oscarrickett"
+```
+
+GitHub emails Linus... sorry, emails *oscarrickett* to accept the
+transfer. Accept it in the email or at
+<https://github.com/notifications>. The URL then becomes
+<https://github.com/oscarrickett/linus-move>.
+
+On the new machine, clone from the new URL:
+
+```powershell
+cd C:\Users\<you>\
+git clone git@github.com:oscarrickett/linus-move.git
+cd linus-move
+git config user.email "oscarrickett@users.noreply.github.com"
+git config user.name  "Oscar Rickett"
+```
+
+If you clone before transferring: update the remote afterwards with
+`git remote set-url origin git@github.com:oscarrickett/linus-move.git`.
+
+Only 4 more things need you specifically. In order:
 
 ## 1. Run the two SQL files in Supabase (2 min)
 
@@ -49,37 +90,34 @@ update public.profiles
  where display_name ilike 'linus%';   -- or match on the exact display name
 ```
 
-## 5. Push to GitHub Pages (2 min)
+## 5. Push config.js and enable GitHub Pages (2 min)
 
-Your current `gh` session is signed in as **solidicon-ab** (work account).
-I did not push because the commits would be tagged with your work email
-and the repo trail would sit under your work token. Switch identities:
+Assumes you've completed step 0 (repo now at `oscarrickett/linus-move`).
 
 ```powershell
-gh auth login --hostname github.com --web
-# choose your personal 'oscarrickett' account when prompted
-gh auth switch --user oscarrickett      # if you already have it added
-```
+cd C:\Users\<you>\linus-move
 
-Then:
-
-```powershell
-cd C:\Users\or\linus-move
-
-# Include the filled-in config.js in the initial push (anon key is a public key)
+# Include the filled-in config.js in the push. The anon key is public
+# (protected by RLS), so committing it is safe.
 git add -f src/config.js
 git commit -m "Fill in Supabase config"
+git push
 
-# Create the repo and push. Private is fine but GH Pages needs a paid plan on
-# private repos, so use public. There are no secrets in the code.
-gh repo create oscarrickett/linus-move --public --source=. --push
+# Flip the repo to public so GitHub Pages works on the free plan.
+# There are no secrets in the code; the only sensitive data lives in
+# Supabase behind auth.
+gh repo edit oscarrickett/linus-move --visibility public --accept-visibility-change-consequences
 
-# Enable GitHub Pages from main branch, root
+# Enable Pages from main branch, root.
 gh api -X POST /repos/oscarrickett/linus-move/pages \
   -f "source[branch]=main" -f "source[path]=/"
 ```
 
 Live at <https://oscarrickett.github.io/linus-move/> within a minute.
+
+If you'd rather keep it private, GitHub Pages on private repos needs a
+paid plan; alternative is to serve locally with `python -m http.server`
+and share via a tunnel like Cloudflare Tunnel.
 
 ## Notes
 
