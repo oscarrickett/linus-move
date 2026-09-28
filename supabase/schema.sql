@@ -1,6 +1,11 @@
 -- Linus's Sweden Move: Supabase schema
 -- Run this in the Supabase SQL editor once, then run seed.sql.
 --
+-- IMPORTANT: run this against a Supabase project dedicated to this app.
+-- It creates tables named `tasks`, `categories`, `phases`, etc. in the
+-- public schema. If a project already has tables with those names, they
+-- must not collide.
+--
 -- Assumptions:
 --   * Supabase Auth (email + password, invite-only) provides auth.users.
 --   * Two users to start: Linus (role 'linus') and Oscar (role 'helper').
