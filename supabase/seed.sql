@@ -1,50 +1,49 @@
--- Linus's Sweden Move: seed data.
--- Idempotent: safe to re-run. Only inserts rows that don't already exist by slug.
--- Run this AFTER schema.sql.
+-- Linus till Sverige: focused pre-arrival seed.
+-- Wipes existing tasks/categories/phases/links and re-seeds with a small,
+-- opinionated list of things Linus can start now, from anywhere. Contacts,
+-- info_records and profiles are preserved.
+--
+-- Safe to re-run. Run this AFTER schema.sql.
 
 -- ----------------------------------------------------------------------------
--- Phases
+-- Reset app data (leave contacts, info_records, profiles alone)
+-- ----------------------------------------------------------------------------
+delete from public.links;
+delete from public.subtasks;
+delete from public.comments;
+delete from public.task_dependencies;
+delete from public.tasks;
+delete from public.categories;
+delete from public.phases;
+
+-- ----------------------------------------------------------------------------
+-- One phase: prepare before arriving
 -- ----------------------------------------------------------------------------
 insert into public.phases (slug, name, sort_order) values
-  ('prepare_now',              'Prepare now',                 1),
-  ('december_visit',           'December visit to Sweden',    2),
-  ('waiting_for_registration', 'Waiting for registration',    3),
-  ('before_leaving_england',   'Before leaving England',      4),
-  ('first_week',               'First week in Sweden',        5),
-  ('first_month',              'First month in Sweden',       6),
-  ('longer_term',              'Longer-term goals',           7)
-on conflict (slug) do nothing;
+  ('prepare_now', 'Before arriving in Sweden', 1);
 
 -- ----------------------------------------------------------------------------
--- Categories
+-- Four categories, focused
 -- ----------------------------------------------------------------------------
 insert into public.categories (slug, name, color, sort_order) values
-  ('travel_licence',   'Travel & licence',   '#a76bff',  1),
-  ('folkbokforing',    'Folkbokföring',      '#3fa4ff',  2),
-  ('banking',          'Banking & digital',  '#2fd4d4',  3),
-  ('employment',       'Employment',         '#4dc26b',  4),
-  ('language',         'Language & studies', '#e5a02f',  5),
-  ('accommodation',    'Accommodation',      '#ff8a5c',  6),
-  ('public_services',  'Public services',    '#ee5b8b',  7),
-  ('leaving_england',  'Leaving England',    '#8892a0',  8),
-  ('arrival',          'Arrival in Sweden',  '#5cffb0',  9),
-  ('support',          'Support network',    '#c9a0ff', 10)
-on conflict (slug) do nothing;
+  ('language',   'Language (SFI)',      '#e5a02f', 1),
+  ('employment', 'Employment',          '#4dc26b', 2),
+  ('education',  'Education & study',   '#a76bff', 3),
+  ('life_admin', 'Life admin basics',   '#3d7cff', 4);
 
 -- ----------------------------------------------------------------------------
--- Task loader helper
--- Inserts a task by slug (idempotent); resolves phase/category by their slug.
+-- Helper: idempotent task loader
 -- ----------------------------------------------------------------------------
 create or replace function public._seed_task(
-  p_slug       text,
-  p_title      text,
+  p_slug text,
+  p_title text,
   p_explanation text,
   p_phase_slug text,
   p_category_slug text,
-  p_priority   text default 'medium',
-  p_mode       text default 'either',
-  p_assigned_to text default 'both',
-  p_can_prepare_early boolean default false,
+  p_priority text default 'medium',
+  p_mode text default 'either',
+  p_assigned_to text default 'linus',
+  p_can_prepare_early boolean default true,
   p_requires_folkbokforing boolean default false
 ) returns void language plpgsql as $$
 begin
@@ -61,192 +60,125 @@ begin
 end;
 $$;
 
-create or replace function public._seed_dep(child_slug text, parent_slug text)
-returns void language plpgsql as $$
+-- Helper: attach a useful link to a task by slug.
+create or replace function public._seed_link(
+  p_task_slug text, p_label text, p_url text, p_is_official boolean default true
+) returns void language plpgsql as $$
 begin
-  insert into public.task_dependencies (task_id, depends_on_task_id)
-  select
-    (select id from public.tasks where slug = child_slug),
-    (select id from public.tasks where slug = parent_slug)
-  on conflict do nothing;
+  insert into public.links (task_id, label, url, is_official)
+  select id, p_label, p_url, p_is_official
+  from public.tasks where slug = p_task_slug;
 end;
 $$;
 
--- ----------------------------------------------------------------------------
--- Tasks
--- ----------------------------------------------------------------------------
+-- ============================================================================
+-- Language / SFI
+-- ============================================================================
+select public._seed_task('sfi_understand',   'Understand what SFI is and how it works',
+  'SFI (Svenska för invandrare) is free tuition in Swedish. Each kommun runs it a little differently, but the national outline is a good place to start.',
+  'prepare_now', 'language', 'high');
+select public._seed_link('sfi_understand', 'Skolverket: what SFI is (Swedish)', 'https://www.skolverket.se/skolformer/vuxenutbildning/utbildning-i-svenska-for-invandrare-sfi');
+select public._seed_link('sfi_understand', 'Informationsverige: SFI overview (English)', 'https://www.informationsverige.se/en/jag-har-fatt-uppehallstillstand/etablering/svenska-for-invandrare-sfi/');
 
--- Travel & licence
-select public._seed_task('approval_dec_visit', 'Get approval for the December visit', 'Confirm with probation that Linus is permitted to travel to Sweden in December.', 'prepare_now', 'travel_licence', 'urgent', 'in_person', 'linus', true, false);
-select public._seed_task('confirm_travel_dates', 'Confirm permitted travel dates and reporting conditions', 'Once approval is given, note exact dates, any check-in requirements, and any restrictions.', 'prepare_now', 'travel_licence', 'high', 'either', 'linus');
-select public._seed_task('book_dec_journey', 'Book the December journey', 'Flight or ferry + onward travel to the Swedish address.', 'prepare_now', 'travel_licence', 'high', 'online', 'oscar');
-select public._seed_task('confirm_licence_end', 'Confirm Linus''s licence end date', 'Written confirmation of when licence conditions end.', 'prepare_now', 'travel_licence', 'high', 'either', 'linus');
-select public._seed_task('confirm_move_date', 'Confirm the permanent move date (Feb 2027)', 'Fix a target date so everything else can plan against it.', 'prepare_now', 'travel_licence', 'high', 'either', 'both');
-select public._seed_task('plan_final_journey', 'Plan the final journey from England to Sweden', 'Route, transport, luggage, timing.', 'before_leaving_england', 'travel_licence', 'medium', 'either', 'both');
+select public._seed_task('sfi_local_kommun', 'Find which kommun would run your SFI course',
+  'SFI is delivered by whichever kommun (municipality) you live in. Confirm your intended kommun so you can look up its specific SFI page.',
+  'prepare_now', 'language', 'high');
+select public._seed_link('sfi_local_kommun', 'Full list of kommuns (SKR)', 'https://skr.se/skr/tjanster/kommunerochregioner.431.html');
 
--- Folkbokföring
-select public._seed_task('check_skatteverket_reqs', 'Check current Skatteverket requirements', 'Rules for a Swedish citizen moving back to Sweden. Requirements change; verify close to the visit.', 'prepare_now', 'folkbokforing', 'urgent', 'online', 'oscar', true, false);
-select public._seed_task('confirm_docs_to_bring', 'Confirm which documents to bring', 'Passport, proof of address, any other evidence Skatteverket asks for.', 'prepare_now', 'folkbokforing', 'urgent', 'either', 'oscar');
-select public._seed_task('gather_passport_spin', 'Gather Swedish passport and personal identity number', 'Locate the passport, note SPIN, store securely in Vault.', 'prepare_now', 'folkbokforing', 'urgent', 'either', 'linus');
-select public._seed_task('gather_address_proof', 'Gather proof of intended Swedish address', 'Letter or written statement from the person Linus will live with.', 'prepare_now', 'folkbokforing', 'high', 'either', 'oscar');
-select public._seed_task('locate_service_centre', 'Locate the appropriate Swedish state service centre', 'Find the nearest Statens servicecenter that handles folkbokföring.', 'prepare_now', 'folkbokforing', 'high', 'online', 'oscar');
-select public._seed_task('check_appointment_needed', 'Check whether an appointment is required', 'Some service centres are drop-in, others require booking.', 'prepare_now', 'folkbokforing', 'high', 'online', 'oscar');
-select public._seed_task('attend_service_centre', 'Attend the service centre in person', 'Linus must appear in person for the identity check.', 'december_visit', 'folkbokforing', 'urgent', 'in_person', 'linus');
-select public._seed_task('complete_identity_check', 'Complete the identity check', 'In-person ID verification at the service centre.', 'december_visit', 'folkbokforing', 'urgent', 'in_person', 'linus');
-select public._seed_task('submit_notification', 'Submit the notification of moving to Sweden', 'Flyttanmälan filed at the service centre.', 'december_visit', 'folkbokforing', 'urgent', 'in_person', 'linus');
-select public._seed_task('record_case_number', 'Record the case or reference number', 'Store in the Vault so we can chase it up.', 'december_visit', 'folkbokforing', 'high', 'either', 'both');
-select public._seed_task('upload_submitted_docs', 'Upload copies of the submitted documents', 'Photograph everything that was handed in.', 'december_visit', 'folkbokforing', 'medium', 'either', 'linus');
-select public._seed_task('track_application_progress', 'Track the application''s progress', 'Weekly check on the case status.', 'waiting_for_registration', 'folkbokforing', 'medium', 'online', 'oscar');
-select public._seed_task('respond_skatteverket_requests', 'Respond to any Skatteverket requests', 'If they ask for more information, act quickly.', 'waiting_for_registration', 'folkbokforing', 'high', 'either', 'both');
-select public._seed_task('record_registration_decision', 'Record the official population-registration decision', 'The date Skatteverket registers Linus. This unlocks many later steps.', 'waiting_for_registration', 'folkbokforing', 'high', 'either', 'oscar');
+select public._seed_task('assess_swedish_level', 'Rough self-check of your Swedish level',
+  'Get a rough CEFR band (A1/A2/B1…) so SFI or Komvux can place you correctly. Nothing formal, just a starting point.',
+  'prepare_now', 'language', 'medium');
+select public._seed_link('assess_swedish_level', 'Council of Europe self-assessment grid', 'https://europa.eu/europass/en/self-assessment-grid');
 
--- Banking & digital
-select public._seed_task('compare_swedish_banks', 'Compare suitable Swedish bank accounts', 'Shortlist 2-3 banks based on ID requirements and fees.', 'prepare_now', 'banking', 'medium', 'online', 'oscar', true, false);
-select public._seed_task('check_bank_id_reqs', 'Check each bank''s identification requirements', 'Some accept passport only, others need folkbokföring.', 'prepare_now', 'banking', 'medium', 'online', 'oscar');
-select public._seed_task('collect_bank_docs', 'Collect the documents required by the chosen bank', 'ID, address proof, any employment info if needed.', 'prepare_now', 'banking', 'medium', 'either', 'linus');
-select public._seed_task('book_bank_appointment', 'Book a bank appointment if necessary', 'Some accounts need in-person opening.', 'first_week', 'banking', 'medium', 'online', 'linus');
-select public._seed_task('open_bank_account', 'Open or reactivate a Swedish bank account', 'May require folkbokföring first.', 'first_week', 'banking', 'high', 'in_person', 'linus', false, true);
-select public._seed_task('apply_bankid', 'Apply for BankID', 'Unlocks nearly every Swedish online service. Needs a bank account first.', 'first_month', 'banking', 'urgent', 'online', 'linus');
-select public._seed_task('test_online_services', 'Test access to important Swedish online services', '1177, Skatteverket, Försäkringskassan, Arbetsförmedlingen.', 'first_month', 'banking', 'medium', 'online', 'linus');
-select public._seed_task('consider_id_card', 'Consider obtaining a Swedish national ID card', 'Useful as a portable ID; requires folkbokföring.', 'first_month', 'banking', 'low', 'in_person', 'linus', false, true);
-select public._seed_task('swedish_mobile', 'Set up a Swedish mobile number', 'Prepaid SIM is fine initially.', 'first_week', 'banking', 'high', 'either', 'linus');
-select public._seed_task('setup_kivra', 'Set up a digital mailbox (Kivra)', 'Receives official post digitally. Needs BankID.', 'first_month', 'banking', 'medium', 'online', 'linus');
+select public._seed_task('gather_school_records', 'Gather previous school records',
+  'Certificates, transcripts, any evidence of prior study. SFI/Komvux may ask, and translations take time.',
+  'prepare_now', 'language', 'low');
 
+select public._seed_task('beyond_sfi', 'Read about what comes after SFI',
+  'After SFI most people continue with Swedish as a Second Language (SAS) through Komvux to reach a level that unlocks work and study.',
+  'prepare_now', 'language', 'low');
+select public._seed_link('beyond_sfi', 'Skolverket: Komvux', 'https://www.skolverket.se/skolformer/vuxenutbildning/kommunal-vuxenutbildning');
+
+-- ============================================================================
 -- Employment
-select public._seed_task('swedish_cv', 'Create a Swedish CV', 'Swedish CV conventions differ from UK; include personnummer once available.', 'prepare_now', 'employment', 'medium', 'either', 'linus', true, false);
-select public._seed_task('cover_letter_template', 'Prepare a general cover-letter template', 'One base template Linus can tailor per application.', 'prepare_now', 'employment', 'low', 'either', 'linus', true, false);
-select public._seed_task('collect_references', 'Collect employment references and certificates', 'Scans of everything from UK employers.', 'prepare_now', 'employment', 'medium', 'either', 'linus');
-select public._seed_task('translate_qualifications', 'Translate important qualifications', 'Certified translations for anything Linus wants recognised in Sweden.', 'prepare_now', 'employment', 'low', 'either', 'linus');
-select public._seed_task('identify_work_types', 'Identify suitable types of work', 'Shortlist realistic roles based on skills and post-release circumstances.', 'prepare_now', 'employment', 'medium', 'either', 'both');
-select public._seed_task('list_potential_employers', 'Create a list of potential employers', 'Local companies, staffing agencies, sectors that hire quickly.', 'prepare_now', 'employment', 'low', 'either', 'oscar');
-select public._seed_task('start_job_search', 'Begin searching for jobs', 'Platsbanken, Blocket Jobb, LinkedIn. Log everything in the app.', 'prepare_now', 'employment', 'medium', 'online', 'linus');
-select public._seed_task('register_arbetsformedlingen', 'Register with Arbetsförmedlingen if appropriate', 'Free job-support service; some programmes require folkbokföring.', 'first_month', 'employment', 'medium', 'either', 'linus', false, true);
-select public._seed_task('track_applications', 'Track job applications and interviews', 'Ongoing log of every application, response, and interview.', 'prepare_now', 'employment', 'medium', 'either', 'linus');
-select public._seed_task('employer_contacts', 'Record employer contacts and follow-up dates', 'Names, phone numbers, dates promised for follow-up.', 'prepare_now', 'employment', 'low', 'either', 'linus');
+-- ============================================================================
+select public._seed_task('swedish_cv', 'Write a Swedish-style CV',
+  'Swedish CVs are short and direct. Include a photo if you like, keep it to 1-2 pages, and lead with recent work.',
+  'prepare_now', 'employment', 'high');
+select public._seed_link('swedish_cv', 'Arbetsförmedlingen: writing a CV', 'https://arbetsformedlingen.se/for-arbetssokande/tips-och-rad/skriv-ett-cv');
 
--- Language & studies
-select public._seed_task('assess_swedish_level', 'Assess Linus''s current Swedish level', 'Self-assessment plus a rough CEFR estimate.', 'prepare_now', 'language', 'medium', 'either', 'linus');
-select public._seed_task('research_sfi_komvux', 'Research suitable SFI or Komvux courses', 'Free Swedish tuition; availability depends on kommun.', 'prepare_now', 'language', 'medium', 'online', 'oscar');
-select public._seed_task('check_local_application_reqs', 'Check the local application requirements', 'Every kommun has slightly different rules.', 'prepare_now', 'language', 'medium', 'online', 'oscar');
-select public._seed_task('gather_education_records', 'Gather previous education records', 'Certificates, transcripts, anything Komvux might ask for.', 'prepare_now', 'language', 'low', 'either', 'linus');
-select public._seed_task('apply_sfi', 'Apply for SFI when eligible', 'Most kommuns require folkbokföring at that address.', 'first_month', 'language', 'high', 'either', 'linus', false, true);
-select public._seed_task('record_course_dates', 'Record course dates and attendance information', 'In the Vault so we can plan around it.', 'first_month', 'language', 'low', 'either', 'linus');
-select public._seed_task('language_goals', 'Create longer-term language goals', '12-month plan; e.g. reach B1 within a year.', 'longer_term', 'language', 'low', 'either', 'linus');
-select public._seed_task('research_beyond_sfi', 'Research progression beyond SFI (SAS)', 'Swedish as a Second Language, university access.', 'longer_term', 'language', 'low', 'online', 'linus');
+select public._seed_task('cover_letter_template', 'Prepare a cover-letter template you can adapt',
+  'One base template you can tailor per application. Keeps the barrier low so you actually apply.',
+  'prepare_now', 'employment', 'medium');
+select public._seed_link('cover_letter_template', 'Arbetsförmedlingen: writing a cover letter', 'https://arbetsformedlingen.se/for-arbetssokande/tips-och-rad/skriv-ett-personligt-brev');
 
--- Accommodation
-select public._seed_task('confirm_initial_address', 'Confirm where Linus will initially live', 'Address, contact person, arrival arrangements.', 'prepare_now', 'accommodation', 'urgent', 'either', 'oscar');
-select public._seed_task('record_full_address', 'Record full Swedish address and contact person', 'Store in the Vault. Needed for folkbokföring and everything else.', 'prepare_now', 'accommodation', 'urgent', 'either', 'oscar');
-select public._seed_task('accommodation_budget', 'Prepare a basic accommodation budget', 'Rent contribution, utilities, food.', 'prepare_now', 'accommodation', 'medium', 'either', 'both');
-select public._seed_task('search_longer_term_housing', 'Search for longer-term accommodation', 'Rental options, sublet options, second-hand market.', 'first_month', 'accommodation', 'medium', 'online', 'both');
-select public._seed_task('register_housing_queues', 'Register with relevant housing queues', 'Bostadsförmedlingen and other kommun queues; queue time is currency.', 'prepare_now', 'accommodation', 'high', 'online', 'oscar', true, false);
-select public._seed_task('track_housing_apps', 'Track housing applications', 'Ongoing log of what''s been applied for.', 'first_month', 'accommodation', 'medium', 'either', 'both');
-select public._seed_task('store_landlord_details', 'Store landlord or housing-company contacts', 'In Vault contacts.', 'prepare_now', 'accommodation', 'low', 'either', 'oscar');
-select public._seed_task('home_insurance', 'Arrange home insurance when required', 'Hemförsäkring is essentially mandatory in Sweden.', 'first_month', 'accommodation', 'medium', 'online', 'linus');
+select public._seed_task('bookmark_job_boards', 'Bookmark the main Swedish job boards',
+  'The three that most people use. Set aside 20 minutes per week to skim them.',
+  'prepare_now', 'employment', 'medium');
+select public._seed_link('bookmark_job_boards', 'Platsbanken (national)', 'https://arbetsformedlingen.se/platsbanken');
+select public._seed_link('bookmark_job_boards', 'Blocket Jobb', 'https://jobb.blocket.se');
+select public._seed_link('bookmark_job_boards', 'LinkedIn Jobs (Sweden)', 'https://www.linkedin.com/jobs/search/?location=Sweden');
 
--- Public services
-select public._seed_task('check_forsakringskassan', 'Check eligibility with Försäkringskassan', 'Registration is separate from folkbokföring but often linked.', 'first_month', 'public_services', 'medium', 'online', 'linus', false, true);
-select public._seed_task('check_financial_support', 'Determine whether financial-support applications are appropriate', 'Do NOT assume entitlement; check case by case.', 'first_month', 'public_services', 'medium', 'either', 'oscar');
-select public._seed_task('register_healthcare', 'Register with the relevant healthcare services', 'Region-specific; folkbokföring usually needed.', 'first_month', 'public_services', 'high', 'online', 'linus', false, true);
-select public._seed_task('choose_health_centre', 'Choose or register with a local health centre (vårdcentral)', 'Named GP-equivalent; can list preferences.', 'first_month', 'public_services', 'medium', 'online', 'linus');
-select public._seed_task('setup_1177', 'Set up access to 1177', 'Healthcare online portal; needs BankID.', 'first_month', 'public_services', 'medium', 'online', 'linus');
-select public._seed_task('identify_social_care', 'Identify local social-care or practical support if needed', 'Kommun-run support services.', 'first_month', 'public_services', 'low', 'either', 'oscar');
-select public._seed_task('record_municipal_contacts', 'Record important municipal contact details', 'Kommun switchboard, housing, socialtjänst.', 'prepare_now', 'public_services', 'low', 'either', 'oscar');
-select public._seed_task('emergency_contact_list', 'Create an emergency contact list', 'Family, closest friend, medical contact, kommun.', 'prepare_now', 'public_services', 'medium', 'either', 'both');
+select public._seed_task('understand_arbetsformedlingen', 'Learn how Arbetsförmedlingen works',
+  'Free public employment service. Once folkbokförd, registering opens up support programmes; understanding it now saves time later.',
+  'prepare_now', 'employment', 'medium');
+select public._seed_link('understand_arbetsformedlingen', 'Arbetsförmedlingen (English)', 'https://arbetsformedlingen.se/other-languages/english-engelska');
 
--- Leaving England
-select public._seed_task('confirm_probation_ended', 'Confirm all probation or licence requirements have ended', 'Written confirmation before departure.', 'before_leaving_england', 'leaving_england', 'urgent', 'either', 'linus');
-select public._seed_task('give_accommodation_notice', 'Give required notice for current UK accommodation', 'Whatever notice period applies.', 'before_leaving_england', 'leaving_england', 'high', 'either', 'linus');
-select public._seed_task('notify_uk_orgs', 'Notify relevant UK organisations of the move', 'HMRC, DWP, NHS, DVLA, bank, insurers.', 'before_leaving_england', 'leaving_england', 'high', 'either', 'linus');
-select public._seed_task('transfer_medical_records', 'Arrange transfer of medical records and prescriptions', 'Where transferable; keep copies regardless.', 'before_leaving_england', 'leaving_england', 'medium', 'either', 'linus');
-select public._seed_task('review_uk_banking', 'Review UK banking and recurring payments', 'Cancel what''s ending, keep what''s still needed.', 'before_leaving_england', 'leaving_england', 'medium', 'either', 'linus');
-select public._seed_task('cancel_utilities', 'Cancel or transfer utilities, subscriptions, phone', 'One list; work through it.', 'before_leaving_england', 'leaving_england', 'medium', 'either', 'linus');
-select public._seed_task('redirect_post', 'Redirect important post', 'Royal Mail redirection to Oscar or another trusted UK address.', 'before_leaving_england', 'leaving_england', 'medium', 'either', 'linus');
-select public._seed_task('decide_belongings', 'Decide what to sell, store, or take to Sweden', 'One decision per category of stuff.', 'before_leaving_england', 'leaving_england', 'medium', 'either', 'linus');
-select public._seed_task('arrange_belongings_transport', 'Arrange transport for belongings', 'Courier, freight, or extra luggage.', 'before_leaving_england', 'leaving_england', 'medium', 'either', 'both');
-select public._seed_task('keep_uk_records', 'Keep copies of important UK records', 'Scan everything worth scanning; store in Vault.', 'before_leaving_england', 'leaving_england', 'medium', 'either', 'linus');
+select public._seed_task('start_job_search', 'Start browsing jobs weekly and note what looks good',
+  'Even before you can apply, browsing regularly builds a feel for the market and turns up realistic targets.',
+  'prepare_now', 'employment', 'medium');
 
--- Arrival
-select public._seed_task('confirm_address_access', 'Confirm access to the Swedish address', 'Someone is there when Linus arrives.', 'first_week', 'arrival', 'urgent', 'either', 'oscar');
-select public._seed_task('obtain_keys', 'Obtain keys', 'Handed over on arrival.', 'first_week', 'arrival', 'urgent', 'in_person', 'oscar');
-select public._seed_task('initial_shop', 'Complete an initial food and household shop', 'First 3 days of food and basics.', 'first_week', 'arrival', 'high', 'in_person', 'both');
-select public._seed_task('phone_internet_check', 'Confirm phone and internet access', 'Working SIM, working home wifi.', 'first_week', 'arrival', 'high', 'either', 'linus');
-select public._seed_task('learn_local_transport', 'Learn the local public transport', 'SL / Skånetrafiken / Västtrafik card, main routes.', 'first_week', 'arrival', 'medium', 'either', 'linus');
-select public._seed_task('confirm_banking_bankid', 'Confirm banking and BankID access', 'Everything logs in as expected.', 'first_month', 'arrival', 'high', 'online', 'linus');
-select public._seed_task('attend_scheduled_appts', 'Attend any scheduled appointments', 'Whatever is on the calendar for the first weeks.', 'first_week', 'arrival', 'high', 'in_person', 'linus');
-select public._seed_task('review_outstanding_apps', 'Review outstanding applications', 'Weekly triage of anything still open.', 'first_month', 'arrival', 'medium', 'either', 'both');
-select public._seed_task('first_month_budget', 'Create a first-month budget', 'What comes in, what goes out.', 'first_week', 'arrival', 'medium', 'either', 'both');
-select public._seed_task('weekly_checkin', 'Arrange a weekly check-in with Oscar', 'Fixed day and time; short and honest.', 'first_week', 'arrival', 'high', 'either', 'both');
+-- ============================================================================
+-- Education & study
+-- ============================================================================
+select public._seed_task('research_komvux', 'Look into Komvux (adult education)',
+  'Free adult education covering everything from primary-level catch-up to university-prep courses. Runs alongside SFI.',
+  'prepare_now', 'education', 'medium');
+select public._seed_link('research_komvux', 'Skolverket: Komvux overview', 'https://www.skolverket.se/skolformer/vuxenutbildning');
 
--- Support network
-select public._seed_task('family_contact_list', 'List family and trusted contacts in Sweden', 'Everyone who could realistically be called on.', 'prepare_now', 'support', 'medium', 'either', 'oscar');
-select public._seed_task('record_who_helps_with_what', 'Record who can help with different matters', 'One person per topic (housing, health, work, admin).', 'prepare_now', 'support', 'low', 'either', 'oscar');
-select public._seed_task('schedule_checkins', 'Arrange regular check-ins between Linus and Oscar', 'Before the move too, not just after.', 'prepare_now', 'support', 'high', 'either', 'both');
-select public._seed_task('questions_for_officials', 'Shared list of questions to ask officials', 'Living document; add as things come up.', 'prepare_now', 'support', 'low', 'either', 'both');
+select public._seed_task('research_higher_ed', 'Look at higher-education options (if relevant)',
+  'Universities and yrkeshögskola (vocational) programs. Free for Swedish citizens; CSN can cover living costs.',
+  'prepare_now', 'education', 'low');
+select public._seed_link('research_higher_ed', 'universityadmissions.se (English)', 'https://www.universityadmissions.se/en/');
+select public._seed_link('research_higher_ed', 'Yrkeshögskolan (vocational)', 'https://www.myh.se/');
+
+select public._seed_task('understand_csn', 'Understand student finance (CSN)',
+  'CSN pays out study grants and student loans to people studying in Sweden. Rules depend on age and course type.',
+  'prepare_now', 'education', 'low');
+select public._seed_link('understand_csn', 'CSN (English)', 'https://www.csn.se/languages/english.html');
+
+-- ============================================================================
+-- Life admin basics
+-- ============================================================================
+select public._seed_task('understand_folkbokforing', 'Understand folkbokföring (why it unlocks everything)',
+  'Population registration at Skatteverket. Almost everything (bank, healthcare, BankID) needs this. Cannot be done from abroad.',
+  'prepare_now', 'life_admin', 'high');
+select public._seed_link('understand_folkbokforing', 'Skatteverket: moving to Sweden (English)', 'https://www.skatteverket.se/servicelankar/otherlanguages/inenglish/individualsandemployees/livinginsweden/movingtoswedenfromabroad.4.7be5268414bea064694c40c.html');
+
+select public._seed_task('understand_bankid', 'Understand BankID (needed for nearly every online service)',
+  'Digital ID issued through a Swedish bank; unlocks 1177, Skatteverket, Försäkringskassan, Arbetsförmedlingen and more.',
+  'prepare_now', 'life_admin', 'medium');
+select public._seed_link('understand_bankid', 'BankID (English)', 'https://www.bankid.com/en/');
+
+select public._seed_task('bookmark_1177', 'Bookmark 1177.se (healthcare portal)',
+  'Once you have BankID and are folkbokförd, everything healthcare-related happens through 1177.',
+  'prepare_now', 'life_admin', 'low');
+select public._seed_link('bookmark_1177', '1177.se', 'https://www.1177.se/');
+
+select public._seed_task('personnummer_basics', 'Learn what personnummer is and how it works',
+  'The Swedish personal identity number, assigned when you register at Skatteverket. It follows you everywhere.',
+  'prepare_now', 'life_admin', 'medium');
+select public._seed_link('personnummer_basics', 'Skatteverket: personal identity number', 'https://www.skatteverket.se/servicelankar/otherlanguages/inenglish/individualsandemployees/livinginsweden/personalidentitynumberandcoordinationnumber.4.2cf1b5cd163796a5c8b4295.html');
 
 -- ----------------------------------------------------------------------------
--- Dependencies
--- ----------------------------------------------------------------------------
-select public._seed_dep('confirm_travel_dates', 'approval_dec_visit');
-select public._seed_dep('book_dec_journey', 'confirm_travel_dates');
-select public._seed_dep('confirm_move_date', 'confirm_licence_end');
-select public._seed_dep('plan_final_journey', 'confirm_move_date');
-
-select public._seed_dep('confirm_docs_to_bring', 'check_skatteverket_reqs');
-select public._seed_dep('check_appointment_needed', 'locate_service_centre');
-select public._seed_dep('attend_service_centre', 'confirm_docs_to_bring');
-select public._seed_dep('attend_service_centre', 'gather_passport_spin');
-select public._seed_dep('attend_service_centre', 'gather_address_proof');
-select public._seed_dep('attend_service_centre', 'check_appointment_needed');
-select public._seed_dep('complete_identity_check', 'attend_service_centre');
-select public._seed_dep('submit_notification', 'complete_identity_check');
-select public._seed_dep('record_case_number', 'submit_notification');
-select public._seed_dep('upload_submitted_docs', 'submit_notification');
-select public._seed_dep('track_application_progress', 'record_case_number');
-select public._seed_dep('record_registration_decision', 'track_application_progress');
-
-select public._seed_dep('check_bank_id_reqs', 'compare_swedish_banks');
-select public._seed_dep('collect_bank_docs', 'check_bank_id_reqs');
-select public._seed_dep('book_bank_appointment', 'collect_bank_docs');
-select public._seed_dep('open_bank_account', 'book_bank_appointment');
-select public._seed_dep('apply_bankid', 'open_bank_account');
-select public._seed_dep('test_online_services', 'apply_bankid');
-select public._seed_dep('setup_kivra', 'apply_bankid');
-select public._seed_dep('setup_1177', 'apply_bankid');
-
-select public._seed_dep('list_potential_employers', 'identify_work_types');
-select public._seed_dep('start_job_search', 'swedish_cv');
-
-select public._seed_dep('research_sfi_komvux', 'assess_swedish_level');
-select public._seed_dep('check_local_application_reqs', 'research_sfi_komvux');
-select public._seed_dep('apply_sfi', 'check_local_application_reqs');
-select public._seed_dep('record_course_dates', 'apply_sfi');
-
-select public._seed_dep('record_full_address', 'confirm_initial_address');
-
-select public._seed_dep('check_financial_support', 'check_forsakringskassan');
-select public._seed_dep('choose_health_centre', 'register_healthcare');
-
-select public._seed_dep('confirm_probation_ended', 'confirm_licence_end');
-select public._seed_dep('give_accommodation_notice', 'confirm_move_date');
-select public._seed_dep('arrange_belongings_transport', 'decide_belongings');
-
-select public._seed_dep('obtain_keys', 'confirm_address_access');
-select public._seed_dep('phone_internet_check', 'swedish_mobile');
-select public._seed_dep('confirm_banking_bankid', 'apply_bankid');
-
-select public._seed_dep('record_who_helps_with_what', 'family_contact_list');
-
--- ----------------------------------------------------------------------------
--- Info-record placeholders (created empty; fill in from the Vault UI)
+-- Info-record placeholders (only insert if the vault is empty of these keys)
 -- ----------------------------------------------------------------------------
 insert into public.info_records (key, notes, visibility)
 select v.key, v.notes, v.visibility
 from (values
-  ('swedish_personal_number', 'YYYYMMDD-XXXX. Enter once known.', 'private_to_linus'),
+  ('swedish_personal_number', 'YYYYMMDD-XXXX. Enter once assigned.', 'private_to_linus'),
   ('passport_number',         'Swedish passport number, expiry, issuing authority.', 'private_to_linus'),
-  ('initial_swedish_address', 'Full street address including postcode.', 'shared'),
-  ('skatteverket_case_number','Assigned after the December visit.', 'shared')
+  ('intended_swedish_address','Full street address including postcode.', 'shared')
 ) as v(key, notes, visibility)
 where not exists (
   select 1 from public.info_records ir where ir.key = v.key
