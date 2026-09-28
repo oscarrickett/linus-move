@@ -15,11 +15,15 @@ export function renderAuth(root, onSignedIn) {
   function paint() {
     clear(card);
     card.append(
-      el("h1", {}, "Home Board"),
+      el("div", { class: "auth-brand" },
+        el("div", { class: "brand-dot" }),
+        el("div", { class: "brand-text" }, "Home Board"),
+      ),
+      el("h1", {}, mode === "signin" ? "Welcome back" : "Create your account"),
       el("p", {},
         mode === "signin"
           ? "Sign in to continue."
-          : "Create an account. Invite-only; use the email your invite went to."
+          : "Invite-only. Use the email your invite went to."
       ),
     );
 
