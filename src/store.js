@@ -1,7 +1,7 @@
-// Thin wrapper around Supabase for the queries the app needs.
-// Kept in one file so the storage layer stays swappable.
+// Thin data layer. Auth uses the Supabase SDK; every query hits the REST
+// API directly via apiJson (reads the JWT from localStorage each call).
 
-import { supabase } from "./supabase.js";
+import { supabase, apiJson, apiFetch, getAccessToken, getCurrentUserId } from "./supabase.js";
 
 // ---------- Session / profile ----------------------------------------------
 export async function signIn(email, password) {
@@ -19,26 +19,31 @@ export async function signUp(email, password, displayName, role) {
   return data;
 }
 
-export async function signOut() { await supabase.auth.signOut(); }
+export async function signOut() {
+  try { await supabase.auth.signOut(); } catch {}
+  // Belt-and-braces: also clear the storage in case SDK signOut hangs.
+  try {
+    for (const k of Object.keys(localStorage)) {
+      if (k.startsWith("sb-") || k.includes("supabase")) localStorage.removeItem(k);
+    }
+  } catch {}
+}
 
+// Synchronous session presence check.
+export function hasSession() { return !!getAccessToken(); }
+
+// Async wrapper so existing callers work; never hangs.
 export async function currentSession() {
-  const { data } = await supabase.auth.getSession();
-  return data?.session || null;
+  const jwt = getAccessToken();
+  const uid = getCurrentUserId();
+  return jwt && uid ? { access_token: jwt, user: { id: uid } } : null;
 }
 
 export async function currentProfile() {
-  const session = await currentSession();
-  if (!session) return null;
-  const { data, error } = await supabase
-    .from("profiles").select("*").eq("id", session.user.id).maybeSingle();
-  if (error) throw error;
-  return data;
-}
-
-export async function loadProfiles() {
-  const { data, error } = await supabase.from("profiles").select("id,display_name,role");
-  if (error) throw error;
-  return data || [];
+  const uid = getCurrentUserId();
+  if (!uid) return null;
+  const rows = await apiJson(`/profiles?select=*&id=eq.${uid}`);
+  return rows?.[0] || null;
 }
 
 export function onAuthChange(fn) {
@@ -47,177 +52,131 @@ export function onAuthChange(fn) {
 
 // ---------- Reference data --------------------------------------------------
 export async function loadPhases() {
-  const { data, error } = await supabase.from("phases").select("*").order("sort_order");
-  if (error) throw error;
-  return data || [];
+  return await apiJson("/phases?select=*&order=sort_order.asc");
 }
 export async function loadCategories() {
-  const { data, error } = await supabase.from("categories").select("*").order("sort_order");
-  if (error) throw error;
-  return data || [];
+  return await apiJson("/categories?select=*&order=sort_order.asc");
+}
+export async function loadProfiles() {
+  return await apiJson("/profiles?select=id,display_name,role");
 }
 
 // ---------- Tasks -----------------------------------------------------------
 export async function loadTasks() {
-  const { data, error } = await supabase
-    .from("tasks")
-    .select("*")
-    .order("updated_at", { ascending: false });
-  if (error) throw error;
-  return data || [];
+  return await apiJson("/tasks?select=*&order=updated_at.desc");
 }
-
 export async function loadDependencies() {
-  const { data, error } = await supabase.from("task_dependencies").select("*");
-  if (error) throw error;
-  return data || [];
+  return await apiJson("/task_dependencies?select=*");
 }
-
 export async function loadTask(id) {
-  const { data, error } = await supabase.from("tasks").select("*").eq("id", id).maybeSingle();
-  if (error) throw error;
-  return data;
+  const rows = await apiJson(`/tasks?select=*&id=eq.${encodeURIComponent(id)}`);
+  return rows?.[0] || null;
 }
-
 export async function updateTask(id, patch) {
-  const { data, error } = await supabase
-    .from("tasks").update(patch).eq("id", id).select().single();
-  if (error) throw error;
-  return data;
+  const rows = await apiJson(`/tasks?id=eq.${encodeURIComponent(id)}`, { method: "PATCH", body: patch });
+  return rows?.[0];
 }
-
 export async function createTask(fields) {
-  const { data, error } = await supabase
-    .from("tasks").insert(fields).select().single();
-  if (error) throw error;
-  return data;
+  const rows = await apiJson("/tasks", { method: "POST", body: fields });
+  return rows?.[0];
 }
-
 export async function deleteTask(id) {
-  const { error } = await supabase.from("tasks").delete().eq("id", id);
-  if (error) throw error;
+  await apiJson(`/tasks?id=eq.${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 // ---------- Subtasks --------------------------------------------------------
 export async function loadSubtasks(taskId) {
-  const { data, error } = await supabase
-    .from("subtasks").select("*").eq("task_id", taskId).order("sort_order");
-  if (error) throw error;
-  return data || [];
+  return await apiJson(`/subtasks?task_id=eq.${taskId}&order=sort_order.asc`);
 }
 export async function addSubtask(taskId, title) {
-  const { data, error } = await supabase.from("subtasks")
-    .insert({ task_id: taskId, title }).select().single();
-  if (error) throw error;
-  return data;
+  const rows = await apiJson("/subtasks", { method: "POST", body: { task_id: taskId, title } });
+  return rows?.[0];
 }
 export async function toggleSubtask(id, done) {
-  const { error } = await supabase.from("subtasks").update({ done }).eq("id", id);
-  if (error) throw error;
+  await apiJson(`/subtasks?id=eq.${id}`, { method: "PATCH", body: { done } });
 }
 export async function deleteSubtask(id) {
-  const { error } = await supabase.from("subtasks").delete().eq("id", id);
-  if (error) throw error;
+  await apiJson(`/subtasks?id=eq.${id}`, { method: "DELETE" });
 }
 
 // ---------- Comments --------------------------------------------------------
 export async function loadComments(taskId) {
-  const { data, error } = await supabase
-    .from("comments").select("*").eq("task_id", taskId).order("created_at");
-  if (error) throw error;
-  return data || [];
+  return await apiJson(`/comments?task_id=eq.${taskId}&order=created_at.asc`);
 }
 export async function addComment(taskId, authorId, body) {
-  const { data, error } = await supabase
-    .from("comments").insert({ task_id: taskId, author_id: authorId, body })
-    .select().single();
-  if (error) throw error;
-  return data;
+  const rows = await apiJson("/comments", { method: "POST", body: { task_id: taskId, author_id: authorId, body } });
+  return rows?.[0];
 }
 
 // ---------- Links -----------------------------------------------------------
 export async function loadLinks(taskId) {
-  const q = supabase.from("links").select("*").order("created_at");
-  const { data, error } = taskId ? await q.eq("task_id", taskId) : await q.is("task_id", null);
-  if (error) throw error;
-  return data || [];
+  const filter = taskId ? `task_id=eq.${taskId}` : `task_id=is.null`;
+  return await apiJson(`/links?${filter}&order=created_at.asc`);
 }
 export async function addLink({ task_id = null, label, url, is_official = false }) {
-  const { data, error } = await supabase.from("links")
-    .insert({ task_id, label, url, is_official }).select().single();
-  if (error) throw error;
-  return data;
+  const rows = await apiJson("/links", { method: "POST", body: { task_id, label, url, is_official } });
+  return rows?.[0];
 }
 export async function deleteLink(id) {
-  const { error } = await supabase.from("links").delete().eq("id", id);
-  if (error) throw error;
+  await apiJson(`/links?id=eq.${id}`, { method: "DELETE" });
 }
 
 // ---------- Info records ----------------------------------------------------
 export async function loadInfoRecords() {
-  const { data, error } = await supabase
-    .from("info_records").select("*").order("updated_at", { ascending: false });
-  if (error) throw error;
-  return data || [];
+  return await apiJson("/info_records?select=*&order=updated_at.desc");
 }
 export async function upsertInfoRecord(row) {
   if (row.id) {
-    const { data, error } = await supabase.from("info_records")
-      .update({ key: row.key, value: row.value, notes: row.notes, visibility: row.visibility })
-      .eq("id", row.id).select().single();
-    if (error) throw error;
-    return data;
-  } else {
-    const { data, error } = await supabase.from("info_records")
-      .insert({ key: row.key, value: row.value, notes: row.notes, visibility: row.visibility })
-      .select().single();
-    if (error) throw error;
-    return data;
+    const rows = await apiJson(`/info_records?id=eq.${row.id}`, {
+      method: "PATCH",
+      body: { key: row.key, value: row.value, notes: row.notes, visibility: row.visibility },
+    });
+    return rows?.[0];
   }
+  const rows = await apiJson("/info_records", {
+    method: "POST",
+    body: { key: row.key, value: row.value, notes: row.notes, visibility: row.visibility },
+  });
+  return rows?.[0];
 }
 export async function deleteInfoRecord(id) {
-  const { error } = await supabase.from("info_records").delete().eq("id", id);
-  if (error) throw error;
+  await apiJson(`/info_records?id=eq.${id}`, { method: "DELETE" });
 }
 
 // ---------- Contacts --------------------------------------------------------
 export async function loadContacts() {
-  const { data, error } = await supabase
-    .from("contacts").select("*").order("name");
-  if (error) throw error;
-  return data || [];
+  return await apiJson("/contacts?select=*&order=name.asc");
 }
 export async function upsertContact(row) {
   if (row.id) {
-    const { data, error } = await supabase.from("contacts")
-      .update(row).eq("id", row.id).select().single();
-    if (error) throw error;
-    return data;
-  } else {
-    const { data, error } = await supabase.from("contacts")
-      .insert(row).select().single();
-    if (error) throw error;
-    return data;
+    const rows = await apiJson(`/contacts?id=eq.${row.id}`, { method: "PATCH", body: row });
+    return rows?.[0];
   }
+  const rows = await apiJson("/contacts", { method: "POST", body: row });
+  return rows?.[0];
 }
 export async function deleteContact(id) {
-  const { error } = await supabase.from("contacts").delete().eq("id", id);
-  if (error) throw error;
+  await apiJson(`/contacts?id=eq.${id}`, { method: "DELETE" });
 }
 
 // ---------- Realtime --------------------------------------------------------
+// Best-effort: the SDK realtime channel may still work; if not, callers
+// still function fine without live updates.
 export function subscribeTaskChanges(fn) {
-  const chan = supabase.channel("tasks-live")
-    .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, p => fn(p))
-    .subscribe();
-  return () => supabase.removeChannel(chan);
+  try {
+    const chan = supabase.channel("tasks-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, p => fn(p))
+      .subscribe();
+    return () => { try { supabase.removeChannel(chan); } catch {} };
+  } catch { return () => {}; }
 }
-
 export function subscribeCommentsForTask(taskId, fn) {
-  const chan = supabase.channel(`comments-live-${taskId}`)
-    .on("postgres_changes",
-        { event: "INSERT", schema: "public", table: "comments", filter: `task_id=eq.${taskId}` },
-        p => fn(p.new))
-    .subscribe();
-  return () => supabase.removeChannel(chan);
+  try {
+    const chan = supabase.channel(`comments-live-${taskId}`)
+      .on("postgres_changes",
+          { event: "INSERT", schema: "public", table: "comments", filter: `task_id=eq.${taskId}` },
+          p => fn(p.new))
+      .subscribe();
+    return () => { try { supabase.removeChannel(chan); } catch {} };
+  } catch { return () => {}; }
 }

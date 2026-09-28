@@ -1,7 +1,7 @@
 import { el, clear, toast } from "./util.js";
 import { ROLE_LABELS, SUPABASE_URL } from "./config.js";
 import {
-  currentSession, currentProfile, onAuthChange, signOut,
+  currentSession, currentProfile, onAuthChange, signOut, hasSession,
   loadPhases, loadCategories, loadTasks, loadDependencies, loadProfiles,
   createTask, subscribeTaskChanges,
 } from "./store.js";
@@ -62,25 +62,26 @@ async function boot() {
     return;
   }
 
-  // Register a SINGLE auth listener. The SDK fires INITIAL_SESSION on start
-  // once localStorage has been read, then SIGNED_IN / SIGNED_OUT / TOKEN_REFRESHED.
+  // Register the SDK auth listener for future events (sign-in, sign-out).
   onAuthChange(async (session) => {
     console.log("[auth]", session ? `signed-in as ${session.user.email}` : "signed-out");
     if (!session) {
       bootedForSession = null;
       return renderAuthScreen();
     }
-    if (bootedForSession === session.user.id) return;   // dedupe repeat fires
+    if (bootedForSession === session.user.id) return;
     bootedForSession = session.user.id;
     await afterSignIn();
   });
 
-  // Safety net: if the SDK never fires the initial event (rare), fall back to auth.
-  setTimeout(() => {
-    if (bootedForSession === null && !document.body.classList.contains("auth-mode")) {
-      currentSession().then(s => { if (!s) renderAuthScreen(); });
-    }
-  }, 800);
+  // Immediate synchronous session check: don't wait on the SDK's async
+  // restoration flow. Reading localStorage tells us right away.
+  if (hasSession()) {
+    bootedForSession = "sync";
+    afterSignIn();
+  } else {
+    renderAuthScreen();
+  }
 }
 
 function renderAuthScreen() {
