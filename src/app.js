@@ -215,16 +215,15 @@ async function route() {
   closeDrawer();
   if (r.name === "home")  { setExpandedTask(null); renderHome(main, state, appActions); }
   if (r.name === "board") {
+    setExpandedTask(null);                        // <-- was missing, so Close/Esc did nothing
     setPhaseFilter(r.params.phase || "");
     renderBoard(main, state, appActions);
   }
   if (r.name === "vault") { setExpandedTask(null); renderVault(main, state); }
   if (r.name === "task") {
-    // Task URLs now expand the row inline on the board.
     setExpandedTask(r.params.id);
-    setPhaseFilter("");
+    // Don't reset phase here — preserve whichever phase the user was viewing.
     renderBoard(main, state, appActions);
-    // Scroll the expanded row into view once painted.
     requestAnimationFrame(() => {
       const row = document.querySelector("tr.expanded");
       if (row) row.scrollIntoView({ behavior: "smooth", block: "start" });
