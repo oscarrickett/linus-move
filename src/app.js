@@ -28,6 +28,15 @@ const state = {
 
 let bootedForSession = null;  // last auth user id we booted for (guards against double-boot)
 
+// Catch any silently rejected promise / uncaught error so we see it.
+window.addEventListener("unhandledrejection", e => {
+  console.error("[unhandled rejection]", e.reason);
+  toast("Unhandled: " + (e.reason?.message || e.reason), "error");
+});
+window.addEventListener("error", e => {
+  console.error("[window error]", e.error || e.message);
+});
+
 // ---------- Boot -----------------------------------------------------------
 async function boot() {
   if (!SUPABASE_URL || SUPABASE_URL.includes("YOUR-PROJECT")) {
@@ -82,19 +91,37 @@ async function afterSignIn() {
 
 async function refreshAll() {
   console.log("[refreshAll] starting");
-  try { state.profile = await currentProfile(); } catch (e) { console.error("profile load failed:", e); toast("Profile load failed: " + e.message, "error"); }
+  await Promise.all([
+    step("profile",   () => currentProfile()).then(v => state.profile = v),
+    step("phases",    () => loadPhases()).then(v => state.phases = v),
+    step("categories",() => loadCategories()).then(v => state.categories = v),
+    step("tasks",     () => loadTasks()).then(v => state.tasks = v),
+    step("deps",      () => loadDependencies()).then(v => state.deps = v),
+  ]);
   if (userChip) userChip.textContent = state.profile
     ? `${state.profile.display_name} · ${roleLabel(state.profile.role)}`
     : "(no profile)";
+  console.log("[refreshAll] final counts:", {
+    profile: !!state.profile, phases: state.phases.length,
+    categories: state.categories.length, tasks: state.tasks.length, deps: state.deps.length,
+  });
+}
+
+async function step(name, fn) {
+  const t0 = performance.now();
+  console.log(`[load] ${name} start`);
   try {
-    const [phases, categories, tasks, deps] = await Promise.all([
-      loadPhases(), loadCategories(), loadTasks(), loadDependencies(),
+    // Bail after 10s so we see a stall instead of hanging forever
+    const result = await Promise.race([
+      Promise.resolve().then(fn),
+      new Promise((_, rej) => setTimeout(() => rej(new Error(`${name} timed out after 10s`)), 10000)),
     ]);
-    state.phases = phases; state.categories = categories; state.tasks = tasks; state.deps = deps;
-    console.log("[refreshAll] loaded:", { phases: phases.length, categories: categories.length, tasks: tasks.length, deps: deps.length });
-  } catch (e) {
-    console.error("data load failed:", e);
-    toast("Data load failed: " + e.message, "error");
+    console.log(`[load] ${name} ok in ${Math.round(performance.now() - t0)}ms; length=${Array.isArray(result) ? result.length : (result ? "1" : "0")}`);
+    return result;
+  } catch (err) {
+    console.error(`[load] ${name} FAILED:`, err);
+    toast(`${name} load failed: ${err.message}`, "error");
+    return Array.isArray(fn.length) ? [] : null;
   }
 }
 
