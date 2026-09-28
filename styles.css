@@ -529,17 +529,23 @@ tr.detail-row td.detail-cell {
   border-bottom: 1px solid var(--border-soft);
 }
 .detail-close {
-  width: 30px; height: 30px; border-radius: 50%;
-  background: var(--bg-elev-2);
-  color: var(--text); font-size: 20px; line-height: 1;
-  display: grid; place-items: center;
-  border: 1px solid var(--border);
-  flex: 0 0 30px;
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--se-blue); color: #fff;
+  border: 1px solid var(--se-blue);
+  padding: 6px 12px; border-radius: 6px;
+  font-size: 13px; font-weight: 600;
 }
-.detail-close:hover { background: var(--danger); color: #fff; border-color: var(--danger); }
+.detail-close .close-x { font-size: 18px; line-height: 1; }
+.detail-close:hover { background: var(--se-blue-2); border-color: var(--se-blue-2); }
 .detail-title {
   font-size: 14px; font-weight: 600; color: var(--text);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  flex: 1;
+}
+.detail-hint {
+  font-size: 11.5px; color: var(--muted);
+  padding: 2px 8px; border-radius: 4px;
+  background: var(--bg-elev-2);
 }
 
 .comments-wrap { padding-top: 4px; }

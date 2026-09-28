@@ -9,6 +9,7 @@ import {
 } from "../store.js";
 
 const activeSubs = new WeakMap();
+const activeCleanups = new WeakMap();
 
 export async function renderInlineDetail(container, task, state, onChange) {
   clear(container);
@@ -17,13 +18,24 @@ export async function renderInlineDetail(container, task, state, onChange) {
 
   // Header: close button + task title (for context)
   const head = el("div", { class: "detail-head" });
-  const close = el("button", { class: "detail-close", "aria-label": "Close" }, "×");
+  const close = el("button", { class: "detail-close", "aria-label": "Close" },
+    el("span", { class: "close-x" }, "×"),
+    "Close",
+  );
   close.onclick = (e) => { e.stopPropagation(); collapseBoard(); };
   head.append(
     close,
     el("div", { class: "detail-title" }, task.title || "…"),
+    el("div", { class: "detail-hint" }, "Esc closes"),
   );
   panel.append(head);
+
+  // Escape closes the panel (removed automatically when the panel unmounts
+  // because collapseBoard triggers a re-render).
+  const escHandler = (e) => { if (e.key === "Escape") collapseBoard(); };
+  document.addEventListener("keydown", escHandler);
+  const cleanup = () => document.removeEventListener("keydown", escHandler);
+  activeCleanups.set(container, cleanup);
 
   // Loading state
   const commentsWrap = el("div", { class: "comments-wrap" },
@@ -44,6 +56,8 @@ export async function renderInlineDetail(container, task, state, onChange) {
 export function teardownDetail(container) {
   const unsub = activeSubs.get(container);
   if (unsub) { try { unsub(); } catch {} activeSubs.delete(container); }
+  const cleanup = activeCleanups.get(container);
+  if (cleanup) { try { cleanup(); } catch {} activeCleanups.delete(container); }
 }
 
 function collapseBoard() {

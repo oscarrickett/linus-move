@@ -150,20 +150,21 @@ export function renderBoard(root, state, actions) {
 
     // Inline phase pill
     const phase = phaseById.get(t.phase_id);
-    const phasePill = el("span", { class: "pill subtle inline-edit" }, phase?.name || "—");
+    const phasePill = el("span", { class: "pill subtle inline-edit", title: "Click to change phase" }, phase?.name || "—");
     phasePill.onclick = (e) => { e.stopPropagation(); pickOne(phasePill, [["", "—"], ...state.phases.map(p => [p.id, p.name])], t.phase_id, v => save(t, { phase_id: v || null })); };
 
     // Inline status pill
-    const statusPill = el("span", { class: `pill status-${t.status} inline-edit` }, statusLabel(t.status));
+    const statusPill = el("span", { class: `pill status-${t.status} inline-edit`, title: "Click to change status" }, statusLabel(t.status));
     statusPill.onclick = (e) => { e.stopPropagation(); pickOne(statusPill, STATUS_OPTIONS.map(s => [s, statusLabel(s)]), t.status, v => save(t, { status: v })); };
 
     // Inline priority pill
-    const prioPill = el("span", { class: `pill pri-${t.priority} inline-edit` }, t.priority);
+    const prioPill = el("span", { class: `pill pri-${t.priority} inline-edit`, title: "Click to change priority" }, t.priority);
     prioPill.onclick = (e) => { e.stopPropagation(); pickOne(prioPill, PRIORITY_OPTIONS.map(p => [p, p]), t.priority, v => save(t, { priority: v })); };
 
     // Inline person avatar
     const personCell = personChip(t.assigned_to);
     personCell.classList.add("inline-edit");
+    personCell.title = "Click to reassign";
     personCell.onclick = (e) => { e.stopPropagation(); pickOne(personCell, ASSIGNED_OPTIONS.map(a => [a, personLabelFor(a)]), t.assigned_to, v => save(t, { assigned_to: v })); };
 
     const isExpanded = t.id === expandedTaskId;
