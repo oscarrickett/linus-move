@@ -2,7 +2,7 @@ import { el, clear, toast } from "./util.js";
 import { ROLE_LABELS, SUPABASE_URL } from "./config.js";
 import {
   currentSession, currentProfile, onAuthChange, signOut,
-  loadPhases, loadCategories, loadTasks, loadDependencies,
+  loadPhases, loadCategories, loadTasks, loadDependencies, loadProfiles,
   createTask, subscribeTaskChanges,
 } from "./store.js";
 import { renderAuth } from "./views/auth.js";
@@ -19,11 +19,12 @@ const signoutBtn = document.getElementById("signout-btn");
 const userChip   = document.getElementById("user-chip");
 
 const state = {
-  profile:    null,
-  phases:     [],
-  categories: [],
-  tasks:      [],
-  deps:       [],
+  profile:      null,
+  profilesById: new Map(),
+  phases:       [],
+  categories:   [],
+  tasks:        [],
+  deps:         [],
 };
 
 let bootedForSession = null;  // last auth user id we booted for (guards against double-boot)
@@ -110,6 +111,7 @@ async function refreshAll() {
   console.log("[refreshAll] starting");
   await Promise.all([
     step("profile",   () => currentProfile()).then(v => state.profile = v),
+    step("profiles",  () => loadProfiles()).then(v => state.profilesById = new Map((v || []).map(p => [p.id, p]))),
     step("phases",    () => loadPhases()).then(v => state.phases = v),
     step("categories",() => loadCategories()).then(v => state.categories = v),
     step("tasks",     () => loadTasks()).then(v => state.tasks = v),

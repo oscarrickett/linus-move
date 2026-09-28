@@ -35,6 +35,12 @@ export async function currentProfile() {
   return data;
 }
 
+export async function loadProfiles() {
+  const { data, error } = await supabase.from("profiles").select("id,display_name,role");
+  if (error) throw error;
+  return data || [];
+}
+
 export function onAuthChange(fn) {
   return supabase.auth.onAuthStateChange((_ev, session) => fn(session));
 }
