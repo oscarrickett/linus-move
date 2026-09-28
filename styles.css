@@ -1,4 +1,6 @@
 :root {
+  /* Colours nudged toward the Swedish flag palette: deep navy body with
+     Swedish blue as the interaction accent and Swedish yellow for highlights. */
   --bg:            #0e1220;
   --bg-elev:       #151a2c;
   --bg-elev-2:     #1c223a;
@@ -6,14 +8,17 @@
   --bg-row-hover:  #1a2038;
   --sidebar:       #0b0f1c;
   --sidebar-item:  #131829;
-  --sidebar-active:#1e274a;
+  --sidebar-active:#0f2a49;
   --border:        #242a41;
   --border-soft:   #1c2137;
   --text:          #e7eaf3;
   --text-dim:      #b2bacb;
   --muted:         #7a8299;
-  --accent:        #3d7cff;
-  --accent-strong: #5a91ff;
+  --se-blue:       #006AA7;
+  --se-blue-2:     #0080c4;
+  --se-yellow:     #FECC00;
+  --accent:        var(--se-blue);
+  --accent-strong: var(--se-blue-2);
   --danger:        #ee5b6b;
 
   --status-not_started:  #4e5773;
@@ -75,14 +80,21 @@ input, select, textarea { outline: none; }
   display: flex; align-items: center; gap: 10px;
   padding: 4px 10px 14px;
 }
-.brand-dot {
-  width: 22px; height: 22px; border-radius: 5px;
-  background: var(--accent);
-  display: grid; place-items: center;
-  color: #fff; font-weight: 700; font-size: 12px;
+/* Swedish flag as an SVG background so it stays crisp at any size. */
+.brand-flag,
+.side-glyph.flag,
+.hero-flag,
+.flag-icon {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 10' preserveAspectRatio='none'><rect width='16' height='10' fill='%23006AA7'/><rect x='5' width='2' height='10' fill='%23FECC00'/><rect y='4' width='16' height='2' fill='%23FECC00'/></svg>");
+  background-size: cover; background-repeat: no-repeat;
+  display: inline-block;
 }
-.brand-dot::before { content: "H"; }
-.brand-text { font-weight: 600; font-size: 15px; letter-spacing: -0.1px; }
+.brand-flag {
+  width: 26px; height: 16px; border-radius: 3px;
+  flex: 0 0 26px;
+}
+.side-glyph.flag { border-radius: 3px; background-color: transparent; }
+.brand-text { font-weight: 600; font-size: 14.5px; letter-spacing: -0.1px; }
 
 .sidebar .side-search {
   margin: 0 4px 10px;
@@ -247,6 +259,10 @@ input, select, textarea { outline: none; }
   color: #fff;
   white-space: nowrap; letter-spacing: 0.02em;
 }
+.inline-edit { cursor: pointer; transition: filter 0.1s ease, box-shadow 0.1s ease; }
+.inline-edit:hover { filter: brightness(1.15); box-shadow: 0 0 0 1px rgba(255,255,255,0.08) inset; }
+.inline-title { border-bottom: 1px dashed transparent; cursor: text; padding-bottom: 1px; }
+.inline-title:hover { border-color: var(--muted); }
 .pill.subtle { background: var(--bg-elev-2); color: var(--text-dim); font-weight: 500; }
 .pill.status-not_started  { background: var(--status-not_started); }
 .pill.status-preparing    { background: var(--status-preparing); }
@@ -279,19 +295,30 @@ input, select, textarea { outline: none; }
 
 /* ---- Home --------------------------------------------------------------- */
 .hero {
-  background: var(--bg-elev);
+  background:
+    linear-gradient(135deg, rgba(0,106,167,0.20), rgba(254,204,0,0.08)),
+    var(--bg-elev);
   border: 1px solid var(--border);
   padding: 18px 22px;
   border-radius: var(--radius);
   display: flex; align-items: center; justify-content: space-between;
   gap: 16px; flex-wrap: wrap;
   margin-bottom: 22px;
+  position: relative;
+  overflow: hidden;
 }
-.hero-title { font-size: 16px; margin: 0 0 4px; font-weight: 600; letter-spacing: -0.1px; }
+.hero .hero-flag {
+  position: absolute; right: -30px; top: -30px;
+  width: 220px; height: 138px; opacity: 0.05;
+  border-radius: 0; transform: rotate(-8deg);
+  pointer-events: none;
+}
+.hero-title { font-size: 17px; margin: 0 0 4px; font-weight: 600; letter-spacing: -0.1px; display: flex; align-items: center; gap: 8px; }
+.hero-title .flag-icon { width: 20px; height: 12px; border-radius: 2px; }
 .hero-sub   { color: var(--muted); font-size: 12.5px; }
-.countdown { display: flex; align-items: baseline; gap: 8px; }
+.countdown { display: flex; align-items: baseline; gap: 8px; position: relative; z-index: 1; }
 .countdown-num {
-  font-size: 34px; font-weight: 600; color: var(--text);
+  font-size: 36px; font-weight: 700; color: var(--se-yellow);
   letter-spacing: -1px;
 }
 .countdown-label { color: var(--muted); font-size: 12.5px; }
@@ -582,7 +609,7 @@ body.auth-mode .main { padding: 0; }
   display: flex; align-items: center; gap: 10px;
   margin-bottom: 22px;
 }
-.auth-brand .brand-dot { width: 26px; height: 26px; font-size: 13px; border-radius: 6px; }
+.auth-brand .brand-flag { width: 32px; height: 20px; border-radius: 3px; }
 .auth-brand .brand-text { font-weight: 600; font-size: 16px; }
 .auth-card h1 { margin: 0 0 6px; font-size: 22px; letter-spacing: -0.3px; }
 .auth-card p { color: var(--muted); font-size: 13px; margin: 0 0 22px; }

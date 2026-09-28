@@ -1,5 +1,6 @@
-import { el, clear, fmtRelative, fmtDate, daysBetween, statusLabel } from "../util.js";
+import { el, clear, fmtRelative, fmtDate, daysBetween, statusLabel, toast, STATUS_OPTIONS, PRIORITY_OPTIONS, ASSIGNED_OPTIONS } from "../util.js";
 import { ROLE_LABELS } from "../config.js";
+import { updateTask } from "../store.js";
 
 // Filter state persisted per session
 const filterState = {
@@ -131,22 +132,86 @@ export function renderBoard(root, state, actions) {
 
   function taskRow(t, phaseById) {
     const overdue = t.target_date && daysBetween(new Date(), t.target_date) < 0 && !["completed","not_needed"].includes(t.status);
+
+    // Inline title editing
+    const titleCell = el("td", { class: "col-title" });
+    const titleSpan = el("span", { class: "inline-title" }, t.title);
+    titleSpan.title = "Double-click to rename";
+    titleSpan.ondblclick = (e) => { e.stopPropagation(); editInlineTitle(titleSpan, t); };
+    titleCell.append(titleSpan);
+    if (t.needs_help)             titleCell.append(el("span", { class: "help-flag" }, "needs help"));
+    if (t.requires_folkbokforing) titleCell.append(el("small", {}, "requires folkbokföring"));
+
+    // Inline phase pill
+    const phase = phaseById.get(t.phase_id);
+    const phasePill = el("span", { class: "pill subtle inline-edit" }, phase?.name || "—");
+    phasePill.onclick = (e) => { e.stopPropagation(); pickOne(phasePill, [["", "—"], ...state.phases.map(p => [p.id, p.name])], t.phase_id, v => save(t, { phase_id: v || null })); };
+
+    // Inline status pill
+    const statusPill = el("span", { class: `pill status-${t.status} inline-edit` }, statusLabel(t.status));
+    statusPill.onclick = (e) => { e.stopPropagation(); pickOne(statusPill, STATUS_OPTIONS.map(s => [s, statusLabel(s)]), t.status, v => save(t, { status: v })); };
+
+    // Inline priority pill
+    const prioPill = el("span", { class: `pill pri-${t.priority} inline-edit` }, t.priority);
+    prioPill.onclick = (e) => { e.stopPropagation(); pickOne(prioPill, PRIORITY_OPTIONS.map(p => [p, p]), t.priority, v => save(t, { priority: v })); };
+
+    // Inline person avatar
+    const personCell = personChip(t.assigned_to);
+    personCell.classList.add("inline-edit");
+    personCell.onclick = (e) => { e.stopPropagation(); pickOne(personCell, ASSIGNED_OPTIONS.map(a => [a, personLabelFor(a)]), t.assigned_to, v => save(t, { assigned_to: v })); };
+
     const tr = el("tr", { class: overdue ? "overdue" : "" },
-      el("td", { class: "col-title" },
-        t.title,
-        t.needs_help ? el("span", { class: "help-flag" }, "needs help") : null,
-        t.requires_folkbokforing ? el("small", {}, "requires folkbokföring") : null,
-      ),
-      el("td", { class: "col-meta" }, el("span", { class: "pill subtle" }, phaseById.get(t.phase_id)?.name || "—")),
-      el("td", {}, el("span", { class: `pill status-${t.status}` }, statusLabel(t.status))),
-      el("td", {}, el("span", { class: `pill pri-${t.priority}` }, t.priority)),
-      el("td", {}, personChip(t.assigned_to)),
+      titleCell,
+      el("td", { class: "col-meta" }, phasePill),
+      el("td", {}, statusPill),
+      el("td", {}, prioPill),
+      el("td", {}, personCell),
       el("td", { class: "col-target col-meta" }, t.target_date ? fmtDate(t.target_date) : "—"),
       el("td", { class: "col-meta" }, fmtRelative(t.updated_at)),
     );
     tr.onclick = () => actions.openTask(t.id);
     return tr;
   }
+
+  function editInlineTitle(span, task) {
+    const input = el("input", { class: "input", value: task.title, style: { padding: "3px 6px", fontSize: "13.5px" } });
+    span.replaceWith(input);
+    input.focus(); input.select();
+    let done = false;
+    const commit = async (save) => {
+      if (done) return; done = true;
+      const val = input.value.trim();
+      if (save && val && val !== task.title) {
+        try {
+          await updateTask(task.id, { title: val });
+          task.title = val;
+        } catch (err) { toast(err.message, "error"); }
+      }
+      const newSpan = el("span", { class: "inline-title" }, task.title);
+      newSpan.title = "Double-click to rename";
+      newSpan.ondblclick = (e) => { e.stopPropagation(); editInlineTitle(newSpan, task); };
+      input.replaceWith(newSpan);
+      if (save) actions.refresh();
+    };
+    input.onkeydown = e => { if (e.key === "Enter") commit(true); if (e.key === "Escape") commit(false); };
+    input.onblur = () => commit(true);
+    input.onclick = e => e.stopPropagation();
+  }
+
+  async function save(task, patch) {
+    try {
+      await updateTask(task.id, patch);
+      Object.assign(task, patch);
+      actions.refresh();
+    } catch (err) { toast(err.message, "error"); }
+  }
+}
+
+function personLabelFor(v) {
+  if (v === "linus") return ROLE_LABELS.linus;
+  if (v === "oscar") return ROLE_LABELS.helper;
+  if (v === "both")  return "Both";
+  return "Unassigned";
 }
 
 function personChip(v) {
@@ -288,6 +353,25 @@ function popoverFrom(anchorBtn, build) {
     if (w.right > window.innerWidth - 8) {
       pop.style.left = `${window.innerWidth - w.width - 12}px`;
     }
+  });
+}
+
+// Small option-picker popover shared by all inline pills.
+function pickOne(anchor, options, currentValue, onPick) {
+  popoverFrom(anchor, ({ close }) => {
+    const wrap = el("div", { style: { display: "flex", flexDirection: "column", gap: "2px", minWidth: "180px" } });
+    for (const [val, label] of options) {
+      const item = el("button", {
+        class: "btn ghost",
+        style: {
+          justifyContent: "flex-start",
+          background: String(currentValue) === String(val) ? "var(--bg-elev-2)" : "",
+        },
+      }, label);
+      item.onclick = (e) => { e.stopPropagation(); close(); onPick(val); };
+      wrap.append(item);
+    }
+    return wrap;
   });
 }
 

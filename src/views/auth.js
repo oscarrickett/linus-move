@@ -16,8 +16,8 @@ export function renderAuth(root, onSignedIn) {
     clear(card);
     card.append(
       el("div", { class: "auth-brand" },
-        el("div", { class: "brand-dot" }),
-        el("div", { class: "brand-text" }, "Home Board"),
+        el("div", { class: "brand-flag" }),
+        el("div", { class: "brand-text" }, "Linus till Sverige"),
       ),
       el("h1", {}, mode === "signin" ? "Welcome back" : "Create your account"),
       el("p", {},

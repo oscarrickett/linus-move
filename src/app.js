@@ -26,33 +26,41 @@ const state = {
   deps:       [],
 };
 
+let bootedForSession = null;  // last auth user id we booted for (guards against double-boot)
+
 // ---------- Boot -----------------------------------------------------------
 async function boot() {
   if (!SUPABASE_URL || SUPABASE_URL.includes("YOUR-PROJECT")) {
-    main.innerHTML = `
-      <div class="empty">
-        <p>Please open <code>src/config.js</code> and fill in your Supabase URL and anon key,
-        then reload the page.</p>
-        <p>Instructions in the README.</p>
-      </div>`;
+    main.innerHTML = `<div class="empty"><p>Fill in <code>src/config.js</code> then reload.</p></div>`;
     return;
   }
 
+  // Register a SINGLE auth listener. The SDK fires INITIAL_SESSION on start
+  // once localStorage has been read, then SIGNED_IN / SIGNED_OUT / TOKEN_REFRESHED.
   onAuthChange(async (session) => {
-    if (!session) return renderAuthScreen();
+    console.log("[auth]", session ? `signed-in as ${session.user.email}` : "signed-out");
+    if (!session) {
+      bootedForSession = null;
+      return renderAuthScreen();
+    }
+    if (bootedForSession === session.user.id) return;   // dedupe repeat fires
+    bootedForSession = session.user.id;
     await afterSignIn();
   });
 
-  const session = await currentSession();
-  if (!session) return renderAuthScreen();
-  await afterSignIn();
+  // Safety net: if the SDK never fires the initial event (rare), fall back to auth.
+  setTimeout(() => {
+    if (bootedForSession === null && !document.body.classList.contains("auth-mode")) {
+      currentSession().then(s => { if (!s) renderAuthScreen(); });
+    }
+  }, 800);
 }
 
 function renderAuthScreen() {
   document.body.classList.add("auth-mode");
   document.getElementById("sidebar").style.display = "none";
   bottomNav.style.display = "none";
-  renderAuth(main, boot);
+  renderAuth(main, () => { /* onAuthChange handles the sign-in event */ });
 }
 
 async function afterSignIn() {
@@ -60,13 +68,12 @@ async function afterSignIn() {
   document.getElementById("sidebar").style.display = "";
   bottomNav.style.display = "";
   signoutBtn.hidden = false;
-  signoutBtn.onclick = async () => { await signOut(); location.hash = "#/"; boot(); };
+  signoutBtn.onclick = async () => { await signOut(); location.hash = "#/"; };
 
   await refreshAll();
   paintSidebar();
   route();
 
-  // Realtime task updates
   subscribeTaskChanges(async () => {
     state.tasks = await loadTasks();
     if (currentRoute().name === "home" || currentRoute().name === "board") route();
@@ -74,19 +81,25 @@ async function afterSignIn() {
 }
 
 async function refreshAll() {
-  state.profile = await currentProfile();
+  console.log("[refreshAll] starting");
+  try { state.profile = await currentProfile(); } catch (e) { console.error("profile load failed:", e); toast("Profile load failed: " + e.message, "error"); }
   if (userChip) userChip.textContent = state.profile
     ? `${state.profile.display_name} · ${roleLabel(state.profile.role)}`
-    : "";
-  const [phases, categories, tasks, deps] = await Promise.all([
-    loadPhases(), loadCategories(), loadTasks(), loadDependencies(),
-  ]);
-  state.phases = phases; state.categories = categories; state.tasks = tasks; state.deps = deps;
+    : "(no profile)";
+  try {
+    const [phases, categories, tasks, deps] = await Promise.all([
+      loadPhases(), loadCategories(), loadTasks(), loadDependencies(),
+    ]);
+    state.phases = phases; state.categories = categories; state.tasks = tasks; state.deps = deps;
+    console.log("[refreshAll] loaded:", { phases: phases.length, categories: categories.length, tasks: tasks.length, deps: deps.length });
+  } catch (e) {
+    console.error("data load failed:", e);
+    toast("Data load failed: " + e.message, "error");
+  }
 }
 
 // ---------- Sidebar --------------------------------------------------------
 function paintSidebar() {
-  // Primary nav active state
   const r = currentRoute();
   for (const link of sidePri.querySelectorAll(".side-item")) {
     link.classList.remove("active");
@@ -98,28 +111,24 @@ function paintSidebar() {
     }
   }
 
-  // Total open-task count (all tasks minus completed/not_needed)
   const openTasks = state.tasks.filter(t => !["completed","not_needed"].includes(t.status));
   const countAll = document.getElementById("count-all");
   if (countAll) countAll.textContent = openTasks.length;
 
-  // Per-phase counts
   const phaseOpenCounts = new Map();
   for (const t of openTasks) {
     if (t.phase_id) phaseOpenCounts.set(t.phase_id, (phaseOpenCounts.get(t.phase_id) || 0) + 1);
   }
 
-  // Sidebar search filter
   const searchInput = document.getElementById("side-search");
   const q = (searchInput?.value || "").toLowerCase().trim();
 
-  // Phase list
   clear(sideNavPh);
   for (const p of state.phases) {
     if (q && !p.name.toLowerCase().includes(q)) continue;
     const count = phaseOpenCounts.get(p.id) || 0;
     const link = el("a", { class: "side-item", href: `#/board?phase=${p.slug}` },
-      el("span", { class: "side-glyph" }, phaseGlyph(p.slug)),
+      el("span", { class: "side-glyph flag" }),
       el("span", {}, p.name),
       count ? el("span", { class: "side-count" }, count) : null,
     );
@@ -127,7 +136,6 @@ function paintSidebar() {
     sideNavPh.append(link);
   }
 
-  // Bottom nav active
   for (const a of bottomNav.querySelectorAll("a")) {
     a.classList.remove("active");
     if ((a.dataset.nav === "home" && r.name === "home")
@@ -137,23 +145,10 @@ function paintSidebar() {
     }
   }
 
-  // Wire the sidebar search once
   if (searchInput && !searchInput.dataset.wired) {
     searchInput.dataset.wired = "1";
     searchInput.oninput = () => paintSidebar();
   }
-}
-
-function phaseGlyph(slug) {
-  return {
-    prepare_now: "P",
-    december_visit: "D",
-    waiting_for_registration: "W",
-    before_leaving_england: "L",
-    first_week: "1",
-    first_month: "M",
-    longer_term: "∞",
-  }[slug] || "•";
 }
 
 // ---------- Routing --------------------------------------------------------
@@ -162,9 +157,7 @@ function currentRoute() {
   const [pathRaw, query = ""] = hash.slice(1).split("?");
   const path = pathRaw || "/";
   const params = Object.fromEntries(new URLSearchParams(query));
-  if (path.startsWith("/task/")) {
-    return { name: "task", params: { id: path.slice("/task/".length) } };
-  }
+  if (path.startsWith("/task/")) return { name: "task", params: { id: path.slice("/task/".length) } };
   if (path === "/board") return { name: "board", params };
   if (path === "/vault") return { name: "vault", params };
   return { name: "home", params };
@@ -180,7 +173,6 @@ async function route() {
   }
   if (r.name === "vault") renderVault(main, state);
   if (r.name === "task") {
-    // Show board underneath if nothing rendered
     if (!main.hasChildNodes()) renderBoard(main, state, appActions);
     openTaskDrawer(r.params.id, state, async () => {
       state.tasks = await loadTasks();
@@ -198,6 +190,7 @@ window.addEventListener("hashchange", route);
 const appActions = {
   openTask(id) { location.hash = `#/task/${id}`; },
   updatePhaseHash(slug) { history.replaceState(null, "", slug ? `#/board?phase=${slug}` : "#/board"); paintSidebar(); },
+  async refresh() { state.tasks = await loadTasks(); route(); paintSidebar(); },
   async createTask() {
     const title = prompt("New task title");
     if (!title || !title.trim()) return;

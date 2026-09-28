@@ -66,12 +66,18 @@ export function renderHome(root, state, actions) {
 
 function hero(profile) {
   const days = daysBetween(new Date(), MOVE_DATE);
-  const label = days > 1 ? `days until the move (${fmtDate(MOVE_DATE)})`
-               : days === 1 ? "day to go" : days === 0 ? "today" : `days since the move`;
+  const first = (profile?.display_name || "").split(/[\s.]+/)[0];
+  const name  = first ? first.charAt(0).toUpperCase() + first.slice(1) : "";
+  const greeting = name ? `Hej ${name}` : "Hej";
+  const label = days > 1 ? `dagar kvar tills flyttdagen (${fmtDate(MOVE_DATE)})`
+               : days === 1 ? "en dag kvar" : days === 0 ? "idag" : `dagar sedan flyttdagen`;
   return el("div", { class: "hero" },
+    el("div", { class: "hero-flag" }),
     el("div", {},
-      el("h1", { class: "hero-title" }, `Hi${profile ? " " + (profile.display_name || "").split(" ")[0] : ""}.`),
-      el("div", { class: "hero-sub" }, "The move plan lives here. Small steps, together."),
+      el("h1", { class: "hero-title" },
+        el("span", { class: "flag-icon" }),
+        greeting + " · Linus till Sverige"),
+      el("div", { class: "hero-sub" }, "Vägen hem. Small steps, together."),
     ),
     el("div", { class: "countdown" },
       el("div", { class: "countdown-num" }, Math.abs(days).toString()),
