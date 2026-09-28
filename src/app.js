@@ -29,12 +29,29 @@ const state = {
 let bootedForSession = null;  // last auth user id we booted for (guards against double-boot)
 
 // Catch any silently rejected promise / uncaught error so we see it.
+// The specific "reading 'length'" throw from GoTrueClient means the stored
+// session is unparseable; nuke it and reload so the user sees the sign-in.
+function maybeCorruptSession(err) {
+  const msg = String(err?.message || err || "");
+  return msg.includes("reading 'length'") || msg.includes("Invalid JWT") || msg.includes("token_hash");
+}
+function nukeSessionAndReload(reason) {
+  console.warn("[session-reset]", reason);
+  try {
+    for (const k of Object.keys(localStorage)) {
+      if (k.startsWith("sb-") || k.includes("supabase")) localStorage.removeItem(k);
+    }
+  } catch {}
+  setTimeout(() => location.reload(), 400);
+}
 window.addEventListener("unhandledrejection", e => {
   console.error("[unhandled rejection]", e.reason);
+  if (maybeCorruptSession(e.reason)) return nukeSessionAndReload("unhandledrejection");
   toast("Unhandled: " + (e.reason?.message || e.reason), "error");
 });
 window.addEventListener("error", e => {
   console.error("[window error]", e.error || e.message);
+  if (maybeCorruptSession(e.error)) return nukeSessionAndReload("window error");
 });
 
 // ---------- Boot -----------------------------------------------------------
