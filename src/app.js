@@ -98,12 +98,30 @@ function paintSidebar() {
     }
   }
 
+  // Total open-task count (all tasks minus completed/not_needed)
+  const openTasks = state.tasks.filter(t => !["completed","not_needed"].includes(t.status));
+  const countAll = document.getElementById("count-all");
+  if (countAll) countAll.textContent = openTasks.length;
+
+  // Per-phase counts
+  const phaseOpenCounts = new Map();
+  for (const t of openTasks) {
+    if (t.phase_id) phaseOpenCounts.set(t.phase_id, (phaseOpenCounts.get(t.phase_id) || 0) + 1);
+  }
+
+  // Sidebar search filter
+  const searchInput = document.getElementById("side-search");
+  const q = (searchInput?.value || "").toLowerCase().trim();
+
   // Phase list
   clear(sideNavPh);
   for (const p of state.phases) {
+    if (q && !p.name.toLowerCase().includes(q)) continue;
+    const count = phaseOpenCounts.get(p.id) || 0;
     const link = el("a", { class: "side-item", href: `#/board?phase=${p.slug}` },
-      el("span", { class: "side-icon" }, phaseIcon(p.slug)),
+      el("span", { class: "side-glyph" }, phaseGlyph(p.slug)),
       el("span", {}, p.name),
+      count ? el("span", { class: "side-count" }, count) : null,
     );
     if (r.name === "board" && r.params.phase === p.slug) link.classList.add("active");
     sideNavPh.append(link);
@@ -118,12 +136,23 @@ function paintSidebar() {
       a.classList.add("active");
     }
   }
+
+  // Wire the sidebar search once
+  if (searchInput && !searchInput.dataset.wired) {
+    searchInput.dataset.wired = "1";
+    searchInput.oninput = () => paintSidebar();
+  }
 }
 
-function phaseIcon(slug) {
+function phaseGlyph(slug) {
   return {
-    prepare_now: "▸", december_visit: "✈", waiting_for_registration: "⌛",
-    before_leaving_england: "⏏", first_week: "☀", first_month: "◐", longer_term: "◈",
+    prepare_now: "P",
+    december_visit: "D",
+    waiting_for_registration: "W",
+    before_leaving_england: "L",
+    first_week: "1",
+    first_month: "M",
+    longer_term: "∞",
   }[slug] || "•";
 }
 
@@ -176,6 +205,18 @@ const appActions = {
       const t = await createTask({
         title: title.trim(),
         phase_id: state.phases.find(p => p.slug === "prepare_now")?.id || null,
+        status: "not_started", priority: "medium", assigned_to: "both",
+      });
+      state.tasks = await loadTasks();
+      location.hash = `#/task/${t.id}`;
+    } catch (err) { toast(err.message, "error"); }
+  },
+  async createTaskIn({ title, category_id, phase_id }) {
+    try {
+      const t = await createTask({
+        title,
+        category_id,
+        phase_id: phase_id || state.phases.find(p => p.slug === "prepare_now")?.id || null,
         status: "not_started", priority: "medium", assigned_to: "both",
       });
       state.tasks = await loadTasks();

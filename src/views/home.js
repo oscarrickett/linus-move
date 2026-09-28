@@ -1,5 +1,6 @@
 import { el, clear, fmtDate, fmtRelative, daysBetween, statusLabel } from "../util.js";
-import { MOVE_DATE, ROLE_LABELS } from "../config.js";
+import { MOVE_DATE } from "../config.js";
+import { ROLE_LABELS } from "../config.js";
 import {
   nextActions, urgentAndOverdue, waitingTasks, needsHelpTasks, progress,
 } from "../helper.js";
@@ -22,23 +23,23 @@ export function renderHome(root, state, actions) {
     ),
   );
 
-  // Next actions
+  // Next 3 recommended actions
   const next = nextActions(tasks, deps, { role, limit: 3 });
   root.append(section(
     "Your next 3 actions",
     "calm and clear; nothing more",
     next.length
-      ? el("div", { class: "cards" }, ...next.map(n => actionCard(n, actions)))
-      : emptyEl("Nothing pressing right now. Nice."),
+      ? rowsList(next.map(n => actionRow(n, actions)))
+      : emptyEl("Nothing pressing right now."),
   ));
 
   // Needs help
   const help = needsHelpTasks(tasks);
   if (help.length) {
     root.append(section(
-      "Marked ‘I need help’",
+      "Marked 'I need help'",
       "Oscar can pick these up",
-      el("div", { class: "cards" }, ...help.slice(0, 6).map(t => helpCard(t, actions))),
+      rowsList(help.slice(0, 6).map(t => taskRow(t, actions, { helpTint: true })), { help: true }),
     ));
   }
 
@@ -48,7 +49,7 @@ export function renderHome(root, state, actions) {
     root.append(section(
       "Urgent or overdue",
       "on the critical path or past due",
-      el("div", { class: "cards" }, ...urgent.map(t => taskCard(t, actions))),
+      rowsList(urgent.map(t => taskRow(t, actions))),
     ));
   }
 
@@ -58,7 +59,7 @@ export function renderHome(root, state, actions) {
     root.append(section(
       "Waiting for a response",
       "no action needed right now",
-      el("div", { class: "cards" }, ...waiting.map(t => taskCard(t, actions))),
+      rowsList(waiting.map(t => taskRow(t, actions))),
     ));
   }
 }
@@ -91,44 +92,42 @@ function section(title, hint, body) {
 
 function emptyEl(text) { return el("div", { class: "empty" }, text); }
 
-function actionCard(entry, actions) {
+function rowsList(rows, opts = {}) {
+  return el("div", { class: "rows" + (opts.help ? " help-strip" : "") }, ...rows);
+}
+
+function actionRow(entry, actions) {
   const { task, reason } = entry;
-  const card = el("div", { class: "card" },
-    el("div", { class: "card-title" }, task.title),
-    el("div", { class: "card-reason" }, reason),
-    el("div", { class: "card-row" },
-      el("span", { class: `pill status-${task.status}` }, statusLabel(task.status)),
-      el("span", { class: `pill pri-${task.priority}` }, task.priority),
-      task.target_date ? el("span", { class: "card-meta" }, "· " + fmtDate(task.target_date)) : null,
+  const row = el("div", { class: "row" },
+    el("div", {},
+      el("div", { class: "row-title" }, task.title),
+      el("div", { class: "row-reason" }, reason),
     ),
+    el("span", { class: `pill status-${task.status}` }, statusLabel(task.status)),
+    el("span", { class: `pill pri-${task.priority}` }, task.priority),
+    el("span", { class: "row-meta" }, task.target_date ? fmtDate(task.target_date) : ""),
   );
-  card.onclick = () => actions.openTask(task.id);
-  return card;
+  row.onclick = () => actions.openTask(task.id);
+  return row;
 }
 
-function taskCard(task, actions) {
-  const card = el("div", { class: "card" },
-    el("div", { class: "card-title" }, task.title),
-    el("div", { class: "card-row" },
-      el("span", { class: `pill status-${task.status}` }, statusLabel(task.status)),
-      el("span", { class: `pill pri-${task.priority}` }, task.priority),
-      task.target_date ? el("span", { class: "card-meta" }, "· " + fmtDate(task.target_date)) : null,
+function taskRow(task, actions, opts = {}) {
+  const row = el("div", { class: "row" },
+    el("div", {},
+      el("div", { class: "row-title" }, task.title),
+      el("div", { class: "row-reason" }, opts.helpTint ? "Linus asked for help with this." : personLabel(task.assigned_to)),
     ),
-    el("div", { class: "card-meta" }, "Updated " + fmtRelative(task.updated_at)),
+    el("span", { class: `pill status-${task.status}` }, statusLabel(task.status)),
+    el("span", { class: `pill pri-${task.priority}` }, task.priority),
+    el("span", { class: "row-meta" }, task.target_date ? fmtDate(task.target_date) : fmtRelative(task.updated_at)),
   );
-  card.onclick = () => actions.openTask(task.id);
-  return card;
+  row.onclick = () => actions.openTask(task.id);
+  return row;
 }
 
-function helpCard(task, actions) {
-  const card = el("div", { class: "card help-card" },
-    el("div", { class: "card-title" }, task.title),
-    el("div", { class: "card-reason" }, "Linus asked for help with this."),
-    el("div", { class: "card-row" },
-      el("span", { class: `pill status-${task.status}` }, statusLabel(task.status)),
-      el("span", { class: `pill pri-${task.priority}` }, task.priority),
-    ),
-  );
-  card.onclick = () => actions.openTask(task.id);
-  return card;
+function personLabel(v) {
+  if (v === "linus") return ROLE_LABELS.linus;
+  if (v === "oscar") return ROLE_LABELS.helper;
+  if (v === "both")  return "Both";
+  return "Unassigned";
 }

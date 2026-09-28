@@ -1,9 +1,9 @@
-import { el, clear, fmtRelative, fmtDate, statusLabel } from "../util.js";
+import { el, clear, fmtRelative, fmtDate, daysBetween, statusLabel } from "../util.js";
 import { ROLE_LABELS } from "../config.js";
 
 // Filter state persisted per session
 const filterState = {
-  phase: "",        // phase slug or ""
+  phase: "",
   category: "",
   status: "",
   assigned: "",
@@ -14,9 +14,9 @@ const filterState = {
   search: "",
 };
 
-export function setPhaseFilter(slug) {
-  filterState.phase = slug || "";
-}
+const collapsed = new Set();  // category ids that are collapsed
+
+export function setPhaseFilter(slug) { filterState.phase = slug || ""; }
 
 export function renderBoard(root, state, actions) {
   clear(root);
@@ -26,52 +26,48 @@ export function renderBoard(root, state, actions) {
   const catById     = new Map(categories.map(c => [c.id, c]));
   const phaseById   = new Map(phases.map(p => [p.id, p]));
 
-  // Head
   const phaseObj = filterState.phase ? phaseBySlug.get(filterState.phase) : null;
+  const filtered = filteredTasks(tasks, catById, phaseById);
+
   root.append(
     el("div", { class: "page-head" },
       el("h1", { class: "page-title" }, phaseObj ? phaseObj.name : "All tasks"),
-      el("span", { class: "page-sub" }, `${filteredTasks(tasks, catById, phaseById).length} shown`),
+      el("span", { class: "page-sub" }, `${filtered.length} of ${tasks.length}`),
     ),
   );
 
-  // Toolbar
-  const bar = el("div", { class: "toolbar" });
-  bar.append(
-    button("+ New task", () => actions.createTask(), true),
-    selectCtl("Phase", filterState.phase, [["", "All phases"], ...phases.map(p => [p.slug, p.name])], v => { filterState.phase = v; render(); actions.updatePhaseHash(v); }),
-    selectCtl("Category", filterState.category, [["", "All categories"], ...categories.map(c => [c.id, c.name])], v => { filterState.category = v; render(); }),
-    selectCtl("Status", filterState.status, [["", "Any status"], ...["not_started","preparing","ready","in_progress","waiting","blocked","completed","not_needed"].map(s => [s, statusLabel(s)])], v => { filterState.status = v; render(); }),
-    selectCtl("Assigned", filterState.assigned, [["", "Anyone"], ["linus", ROLE_LABELS.linus], ["oscar", ROLE_LABELS.helper], ["both", "Both"]], v => { filterState.assigned = v; render(); }),
-    selectCtl("Priority", filterState.priority, [["", "Any"], ["urgent","Urgent"], ["high","High"], ["medium","Medium"], ["low","Low"]], v => { filterState.priority = v; render(); }),
-    selectCtl("Mode", filterState.mode, [["", "Any"], ["online","Online"], ["in_person","In person"], ["either","Either"]], v => { filterState.mode = v; render(); }),
-    toggleBtn("Needs help", filterState.needsHelp, v => { filterState.needsHelp = v; render(); }),
-    toggleBtn("Requires folkbokföring", filterState.requiresFolk, v => { filterState.requiresFolk = v; render(); }),
+  const toolbar = el("div", { class: "toolbar" });
+  toolbar.append(
+    (() => { const b = el("button", { class: "btn primary" }, el("span", { class: "plus" }, "+"), "New"); b.onclick = () => actions.createTask(); return b; })(),
+    personFilterBtn(() => renderBody()),
+    filterBtn(categories, () => renderBody()),
+    sortBtn(() => renderBody()),
+    activeFiltersChips(() => renderBody()),
     (() => {
-      const input = el("input", { class: "input", type: "search", placeholder: "Search title…", style: { maxWidth: "220px" } });
+      const wrap = el("div", { class: "search-wrap" });
+      const input = el("input", { type: "search", placeholder: `Search ${phaseObj ? phaseObj.name : "tasks"}...` });
       input.value = filterState.search;
-      input.oninput = () => { filterState.search = input.value; render(); };
-      return input;
+      input.oninput = () => { filterState.search = input.value; renderBody(); };
+      wrap.append(input);
+      return wrap;
     })(),
   );
-  root.append(bar);
+  root.append(toolbar);
 
-  // Groups (by category within the selected phase, or by phase overall)
-  const groupsWrap = el("div");
-  root.append(groupsWrap);
+  const body = el("div");
+  root.append(body);
+  renderBody();
 
-  render();
-
-  function render() {
-    clear(groupsWrap);
+  function renderBody() {
+    clear(body);
     const list = filteredTasks(tasks, catById, phaseById);
+    root.querySelector(".page-sub").textContent = `${list.length} of ${tasks.length}`;
 
     if (!list.length) {
-      groupsWrap.append(el("div", { class: "empty" }, "No tasks match those filters."));
+      body.append(el("div", { class: "empty" }, "No tasks match those filters."));
       return;
     }
 
-    // Group by category always; phase filter narrows the list first.
     const byCat = new Map();
     for (const t of list) {
       const cat = catById.get(t.category_id);
@@ -80,20 +76,28 @@ export function renderBoard(root, state, actions) {
       byCat.get(key).items.push(t);
     }
     const groups = [...byCat.values()].sort((a, b) => (a.cat?.sort_order ?? 99) - (b.cat?.sort_order ?? 99));
-    for (const g of groups) {
-      groupsWrap.append(renderGroup(g.cat, g.items));
-    }
+    for (const g of groups) body.append(renderGroup(g.cat, g.items));
   }
 
   function renderGroup(cat, items) {
+    const isCollapsed = collapsed.has(cat?.id);
     const group = el("div", { class: "group" });
-    group.append(
-      el("div", { class: "group-head" },
-        el("div", { class: "cat-dot", style: { background: cat?.color || "#8892a0" } }),
-        el("h3", {}, cat?.name || "Uncategorised"),
-        el("span", { class: "group-count" }, `${items.length} item${items.length === 1 ? "" : "s"}`),
-      ),
+    const head = el("div", { class: "group-head" + (isCollapsed ? " collapsed" : "") });
+    head.append(
+      el("span", { class: "caret" }, "▾"),
+      el("span", { class: "cat-bar", style: { background: cat?.color || "#4e5773" } }),
+      el("h3", {}, cat?.name || "Uncategorised"),
+      el("span", { class: "group-count" }, `${items.length} item${items.length === 1 ? "" : "s"}`),
     );
+    head.onclick = () => {
+      if (isCollapsed) collapsed.delete(cat.id); else collapsed.add(cat.id);
+      renderBody();
+    };
+    group.append(head);
+
+    if (isCollapsed) return group;
+
+    const bodyEl = el("div", { class: "group-body" });
     const table = el("table", { class: "table" },
       el("thead", {},
         el("tr", {},
@@ -101,34 +105,190 @@ export function renderBoard(root, state, actions) {
           el("th", {}, "Phase"),
           el("th", {}, "Status"),
           el("th", {}, "Priority"),
-          el("th", {}, "Assigned"),
+          el("th", {}, "Person"),
           el("th", {}, "Target"),
           el("th", {}, "Updated"),
         ),
       ),
       el("tbody", {},
-        ...items.map(t => {
-          const tr = el("tr", {},
-            el("td", { class: "col-title" },
-              t.title,
-              t.needs_help ? el("span", { class: "help-flag" }, "· needs help") : null,
-              t.requires_folkbokforing ? el("span", { class: "card-meta" }, "  · req. folkbokföring") : null,
-            ),
-            el("td", { class: "card-meta" }, phaseById.get(t.phase_id)?.name || ""),
-            el("td", {}, el("span", { class: `pill status-${t.status}` }, statusLabel(t.status))),
-            el("td", {}, el("span", { class: `pill pri-${t.priority}` }, t.priority)),
-            el("td", { class: "card-meta" }, assignedLabel(t.assigned_to)),
-            el("td", { class: "card-meta" }, t.target_date ? fmtDate(t.target_date) : "—"),
-            el("td", { class: "card-meta" }, fmtRelative(t.updated_at)),
-          );
-          tr.onclick = () => actions.openTask(t.id);
-          return tr;
-        }),
+        ...items.map(t => taskRow(t, phaseById)),
       ),
     );
-    group.append(table);
+    bodyEl.append(table);
+
+    const foot = el("div", { class: "group-foot" }, "+ Add task in this category");
+    foot.onclick = (e) => {
+      e.stopPropagation();
+      const title = prompt(`New task in ${cat.name}`);
+      if (!title || !title.trim()) return;
+      actions.createTaskIn({ title: title.trim(), category_id: cat.id });
+    };
+    bodyEl.append(foot);
+
+    group.append(bodyEl);
     return group;
   }
+
+  function taskRow(t, phaseById) {
+    const overdue = t.target_date && daysBetween(new Date(), t.target_date) < 0 && !["completed","not_needed"].includes(t.status);
+    const tr = el("tr", { class: overdue ? "overdue" : "" },
+      el("td", { class: "col-title" },
+        t.title,
+        t.needs_help ? el("span", { class: "help-flag" }, "needs help") : null,
+        t.requires_folkbokforing ? el("small", {}, "requires folkbokföring") : null,
+      ),
+      el("td", { class: "col-meta" }, el("span", { class: "pill subtle" }, phaseById.get(t.phase_id)?.name || "—")),
+      el("td", {}, el("span", { class: `pill status-${t.status}` }, statusLabel(t.status))),
+      el("td", {}, el("span", { class: `pill pri-${t.priority}` }, t.priority)),
+      el("td", {}, personChip(t.assigned_to)),
+      el("td", { class: "col-target col-meta" }, t.target_date ? fmtDate(t.target_date) : "—"),
+      el("td", { class: "col-meta" }, fmtRelative(t.updated_at)),
+    );
+    tr.onclick = () => actions.openTask(t.id);
+    return tr;
+  }
+}
+
+function personChip(v) {
+  const cls = {
+    linus:  "avatar-linus",
+    oscar:  "avatar-oscar",
+    both:   "avatar-both",
+  }[v] || "avatar-none";
+  const initial = { linus: "L", oscar: "O", both: "LO" }[v] || "—";
+  const label = v === "linus" ? ROLE_LABELS.linus : v === "oscar" ? ROLE_LABELS.helper : v === "both" ? "Both" : "Unassigned";
+  return el("span", { class: "avatar" },
+    el("span", { class: `avatar-dot ${cls}` }, initial),
+    label,
+  );
+}
+
+/* ---------- Filter popover ------------------------------------------------ */
+
+function personFilterBtn(onChange) {
+  const b = el("button", { class: "btn" + (filterState.assigned ? " primary" : "") },
+    el("span", { class: "icon" }, "◐"),
+    filterState.assigned
+      ? (filterState.assigned === "linus" ? ROLE_LABELS.linus : filterState.assigned === "oscar" ? ROLE_LABELS.helper : "Both")
+      : "Person",
+  );
+  b.onclick = (e) => {
+    e.stopPropagation();
+    popoverFrom(b, ({ close }) => {
+      const wrap = el("div", { style: { display: "flex", flexDirection: "column", gap: "6px" } });
+      const opts = [["", "Anyone"], ["linus", ROLE_LABELS.linus], ["oscar", ROLE_LABELS.helper], ["both", "Both"]];
+      for (const [val, label] of opts) {
+        const item = el("button", {
+          class: "btn ghost",
+          style: {
+            justifyContent: "flex-start",
+            background: filterState.assigned === val ? "var(--bg-elev-2)" : "",
+          },
+        }, label);
+        item.onclick = () => { filterState.assigned = val; close(); onChange(); };
+        wrap.append(item);
+      }
+      return wrap;
+    });
+  };
+  return b;
+}
+
+function filterBtn(categories, onChange) {
+  const active = filterState.status || filterState.category || filterState.priority || filterState.mode || filterState.needsHelp || filterState.requiresFolk;
+  const b = el("button", { class: "btn" + (active ? " primary" : "") },
+    el("span", { class: "icon" }, "⊟"),
+    "Filter",
+  );
+  b.onclick = (e) => {
+    e.stopPropagation();
+    popoverFrom(b, ({ close }) => {
+      const wrap = el("div", { style: { display: "flex", flexDirection: "column", gap: "10px", minWidth: "280px" } });
+      wrap.append(
+        selectField("Category", filterState.category, [["", "All categories"], ...categories.map(c => [c.id, c.name])], v => filterState.category = v),
+        selectField("Status", filterState.status, [["", "Any status"], ...["not_started","preparing","ready","in_progress","waiting","blocked","completed","not_needed"].map(s => [s, statusLabel(s)])], v => filterState.status = v),
+        selectField("Priority", filterState.priority, [["", "Any"], ["urgent","Urgent"], ["high","High"], ["medium","Medium"], ["low","Low"]], v => filterState.priority = v),
+        selectField("Mode", filterState.mode, [["", "Any"], ["online","Online"], ["in_person","In person"], ["either","Either"]], v => filterState.mode = v),
+        checkField("Needs help", filterState.needsHelp, v => filterState.needsHelp = v),
+        checkField("Requires folkbokföring", filterState.requiresFolk, v => filterState.requiresFolk = v),
+      );
+      const foot = el("div", { class: "row-actions" });
+      const clearBtn = el("button", { class: "btn ghost small" }, "Clear all");
+      clearBtn.onclick = () => {
+        filterState.category = filterState.status = filterState.priority = filterState.mode = "";
+        filterState.needsHelp = false; filterState.requiresFolk = false;
+        close(); onChange();
+      };
+      const applyBtn = el("button", { class: "btn primary small" }, "Apply");
+      applyBtn.onclick = () => { close(); onChange(); };
+      foot.append(clearBtn, applyBtn);
+      wrap.append(foot);
+      return wrap;
+    });
+  };
+  return b;
+}
+
+function sortBtn(onChange) {
+  // (Sort just returns a stable list right now; expose the picker for parity/discoverability.)
+  const b = el("button", { class: "btn" },
+    el("span", { class: "icon" }, "⇅"),
+    "Sort",
+  );
+  b.onclick = () => {};  // no-op for now; sort is fixed to status/priority/updated
+  b.title = "Sorted by status then priority";
+  return b;
+}
+
+function activeFiltersChips(onChange) {
+  const chips = [];
+  const push = (label, clear) => {
+    const chip = el("button", { class: "btn ghost small", title: "Remove filter" }, label, " ×");
+    chip.onclick = () => { clear(); onChange(); };
+    chips.push(chip);
+  };
+  if (filterState.needsHelp)     push("Needs help", () => filterState.needsHelp = false);
+  if (filterState.requiresFolk)  push("Folkbokföring", () => filterState.requiresFolk = false);
+  return el("div", { style: { display: "flex", gap: "6px", flexWrap: "wrap" } }, ...chips);
+}
+
+function selectField(label, value, options, setter) {
+  const sel = el("select", { class: "select" });
+  for (const [v, l] of options) {
+    const o = el("option", { value: v }, l);
+    if (String(v) === String(value)) o.selected = true;
+    sel.append(o);
+  }
+  sel.onchange = () => setter(sel.value);
+  return el("div", { class: "field" }, el("label", {}, label), sel);
+}
+
+function checkField(label, value, setter) {
+  const wrap = el("label", { class: "field", style: { flexDirection: "row", alignItems: "center", gap: "8px" } });
+  const cb = el("input", { type: "checkbox" });
+  cb.checked = !!value;
+  cb.onchange = () => setter(cb.checked);
+  wrap.append(cb, el("span", { style: { color: "var(--text-dim)", fontSize: "13px" } }, label));
+  return wrap;
+}
+
+function popoverFrom(anchorBtn, build) {
+  const rect = anchorBtn.getBoundingClientRect();
+  const backdrop = el("div", { class: "popover-backdrop" });
+  const pop = el("div", { class: "popover" });
+  pop.style.left = `${Math.max(8, rect.left)}px`;
+  pop.style.top  = `${rect.bottom + 6 + window.scrollY}px`;
+  const close = () => { pop.remove(); backdrop.remove(); };
+  backdrop.onclick = close;
+  document.body.append(backdrop, pop);
+  pop.append(build({ close }));
+
+  requestAnimationFrame(() => {
+    const w = pop.getBoundingClientRect();
+    if (w.right > window.innerWidth - 8) {
+      pop.style.left = `${window.innerWidth - w.width - 12}px`;
+    }
+  });
 }
 
 function filteredTasks(tasks, catById, phaseById) {
@@ -147,7 +307,6 @@ function filteredTasks(tasks, catById, phaseById) {
     if (filterState.search && !t.title.toLowerCase().includes(filterState.search.toLowerCase())) return false;
     return true;
   }).sort((a, b) => {
-    // Sort by status (open first), then priority, then updated_at
     const openOrder = { in_progress: 1, ready: 2, preparing: 3, not_started: 4, waiting: 5, blocked: 6, completed: 7, not_needed: 8 };
     const oa = openOrder[a.status] || 9;
     const ob = openOrder[b.status] || 9;
@@ -157,34 +316,4 @@ function filteredTasks(tasks, catById, phaseById) {
     if (pa !== pb) return pa - pb;
     return new Date(b.updated_at) - new Date(a.updated_at);
   });
-}
-
-function assignedLabel(v) {
-  if (v === "linus") return ROLE_LABELS.linus;
-  if (v === "oscar") return ROLE_LABELS.helper;
-  if (v === "both")  return "Both";
-  return "—";
-}
-
-function button(label, onClick, primary) {
-  const b = el("button", { class: "btn" + (primary ? " primary" : "") }, label);
-  b.onclick = onClick;
-  return b;
-}
-
-function selectCtl(label, value, options, onChange) {
-  const sel = el("select", { class: "select", style: { width: "auto" } });
-  for (const [v, l] of options) {
-    const o = el("option", { value: v }, l);
-    if (v === value) o.selected = true;
-    sel.append(o);
-  }
-  sel.onchange = () => onChange(sel.value);
-  return sel;
-}
-
-function toggleBtn(label, active, onChange) {
-  const b = el("button", { class: "btn" + (active ? " primary" : "") }, label);
-  b.onclick = () => onChange(!active);
-  return b;
 }
