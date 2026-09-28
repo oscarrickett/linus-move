@@ -1,6 +1,10 @@
 import { el, clear, fmtRelative, fmtDate, daysBetween, statusLabel, toast, STATUS_OPTIONS, PRIORITY_OPTIONS, ASSIGNED_OPTIONS } from "../util.js";
 import { ROLE_LABELS } from "../config.js";
 import { updateTask } from "../store.js";
+import { renderInlineDetail, teardownDetail } from "./task.js";
+
+let expandedTaskId = null;
+export function setExpandedTask(id) { expandedTaskId = id; }
 
 // Filter state persisted per session
 const filterState = {
@@ -99,21 +103,23 @@ export function renderBoard(root, state, actions) {
     if (isCollapsed) return group;
 
     const bodyEl = el("div", { class: "group-body" });
+    const tbody = el("tbody");
+    for (const t of items) {
+      tbody.append(taskRow(t, phaseById));
+      if (t.id === expandedTaskId) tbody.append(detailRow(t));
+    }
     const table = el("table", { class: "table" },
       el("thead", {},
         el("tr", {},
-          el("th", { style: { width: "40%" } }, "Task"),
+          el("th", { style: { width: "45%" } }, "Task"),
           el("th", {}, "Phase"),
           el("th", {}, "Status"),
           el("th", {}, "Priority"),
           el("th", {}, "Person"),
-          el("th", {}, "Target"),
           el("th", {}, "Updated"),
         ),
       ),
-      el("tbody", {},
-        ...items.map(t => taskRow(t, phaseById)),
-      ),
+      tbody,
     );
     bodyEl.append(table);
 
@@ -160,17 +166,28 @@ export function renderBoard(root, state, actions) {
     personCell.classList.add("inline-edit");
     personCell.onclick = (e) => { e.stopPropagation(); pickOne(personCell, ASSIGNED_OPTIONS.map(a => [a, personLabelFor(a)]), t.assigned_to, v => save(t, { assigned_to: v })); };
 
-    const tr = el("tr", { class: overdue ? "overdue" : "" },
+    const isExpanded = t.id === expandedTaskId;
+    const tr = el("tr", { class: (overdue ? "overdue " : "") + (isExpanded ? "expanded" : "") },
       titleCell,
       el("td", { class: "col-meta" }, phasePill),
       el("td", {}, statusPill),
       el("td", {}, prioPill),
       el("td", {}, personCell),
-      el("td", { class: "col-target col-meta" }, t.target_date ? fmtDate(t.target_date) : "—"),
       el("td", { class: "col-meta" }, fmtRelative(t.updated_at)),
     );
-    tr.onclick = () => actions.openTask(t.id);
+    tr.onclick = () => actions.toggleExpand(t.id);
     return tr;
+  }
+
+  function detailRow(t) {
+    const holder = el("td", { colspan: "6", class: "detail-cell" });
+    const container = el("div", { class: "detail-container" });
+    holder.append(container);
+    // Render asynchronously; container starts with a loading state.
+    renderInlineDetail(container, t, state, () => actions.refresh());
+    const row = el("tr", { class: "detail-row" }, holder);
+    row.onclick = e => e.stopPropagation();  // clicks inside don't collapse
+    return row;
   }
 
   function editInlineTitle(span, task) {

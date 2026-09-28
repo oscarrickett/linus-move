@@ -508,7 +508,47 @@ input, select, textarea { outline: none; }
   text-transform: uppercase; letter-spacing: 0.04em;
 }
 
-/* ---- Drawer (task detail) ---------------------------------------------- */
+/* ---- Inline task detail panel (below expanded row) --------------------- */
+.table tbody tr.expanded {
+  background: var(--bg-elev-2);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+tr.detail-row td.detail-cell {
+  padding: 0;
+  background: var(--bg-elev);
+  border-top: 0;
+  cursor: default;
+}
+.detail-container { padding: 16px 20px 20px; }
+.detail-panel { display: flex; flex-direction: column; gap: 12px; max-width: 780px; }
+.detail-panel .help-toggle { align-self: flex-start; width: auto; padding: 6px 12px; }
+.detail-meta { color: var(--muted); font-size: 12px; }
+.detail-section {
+  border-top: 1px solid var(--border-soft);
+  padding-top: 12px;
+  margin-top: 4px;
+}
+.detail-section-head {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--muted); font-weight: 600; margin-bottom: 8px;
+}
+.two-col {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px;
+}
+.dep-list { padding-left: 18px; margin: 0; }
+.dep-list li { margin-bottom: 4px; }
+.dep-status { color: var(--muted); font-size: 11.5px; margin-left: 6px; }
+.detail-danger {
+  display: flex; justify-content: flex-end;
+  padding-top: 12px; border-top: 1px solid var(--border-soft);
+}
+
+@media (max-width: 780px) {
+  .two-col { grid-template-columns: 1fr; }
+  .detail-container { padding: 14px; }
+}
+
+/* ---- Drawer (fallback, only for legacy openTaskDrawer usage) ----------- */
 .drawer-backdrop {
   position: fixed; inset: 0;
   background: rgba(4, 8, 20, 0.55);

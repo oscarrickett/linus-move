@@ -1,6 +1,15 @@
+// Task detail rendered inline on the board (no drawer).
+//
+// renderInlineDetail(container, task, state, onChange)
+//   Mounts the full detail UI into the given container element. The board
+//   inserts an expansion row below the clicked task and mounts here.
+//
+// We keep a tiny openTaskDrawer wrapper for the URL route /task/:id, but
+// the board itself no longer uses a drawer.
+
 import {
-  el, clear, fmtRelative, fmtDate, statusLabel,
-  STATUS_OPTIONS, PRIORITY_OPTIONS, ASSIGNED_OPTIONS, MODE_OPTIONS, toast,
+  el, clear, fmtRelative,
+  toast,
 } from "../util.js";
 import { ROLE_LABELS } from "../config.js";
 import {
@@ -11,105 +20,61 @@ import {
   loadDependencies, loadTasks,
 } from "../store.js";
 
-let openDrawer = null;
+// Track a live-comments subscription per detail mount so we can clean up.
+const activeSubs = new WeakMap();
 
-export function closeDrawer() {
-  if (openDrawer) {
-    openDrawer.unsubs.forEach(fn => fn && fn());
-    openDrawer.node.remove();
-    openDrawer.backdrop.remove();
-    openDrawer = null;
-  }
-}
+export async function renderInlineDetail(container, task, state, onChange) {
+  clear(container);
+  container.append(el("div", { class: "empty" }, "Loading…"));
 
-export async function openTaskDrawer(taskId, state, onChange) {
-  closeDrawer();
-
-  const root = document.getElementById("drawer-root");
-  const backdrop = el("div", { class: "drawer-backdrop" });
-  backdrop.onclick = () => closeDrawer();
-  const node = el("aside", { class: "drawer", role: "dialog", "aria-modal": "true" });
-  root.append(backdrop, node);
-
-  openDrawer = { node, backdrop, unsubs: [] };
-
-  node.append(el("div", { class: "drawer-body" }, el("div", { class: "empty" }, "Loading…")));
-
-  const [task, subtasks, comments, links, deps, allTasks] = await Promise.all([
-    loadTask(taskId), loadSubtasks(taskId), loadComments(taskId), loadLinks(taskId),
+  const [full, subtasks, comments, links, deps, allTasks] = await Promise.all([
+    loadTask(task.id), loadSubtasks(task.id), loadComments(task.id), loadLinks(task.id),
     loadDependencies(), loadTasks(),
   ]);
-  if (!task) { closeDrawer(); toast("Task not found", "error"); return; }
+  if (!full) { clear(container); container.append(el("div", { class: "empty" }, "Task not found.")); return; }
+  Object.assign(task, full);
 
   const taskById = new Map(allTasks.map(t => [t.id, t]));
   const myDeps   = deps.filter(d => d.task_id === task.id).map(d => taskById.get(d.depends_on_task_id)).filter(Boolean);
   const blocks   = deps.filter(d => d.depends_on_task_id === task.id).map(d => taskById.get(d.task_id)).filter(Boolean);
-  const phase    = state.phases.find(p => p.id === task.phase_id);
-  const category = state.categories.find(c => c.id === task.category_id);
 
-  clear(node);
+  clear(container);
+  const panel = el("div", { class: "detail-panel" });
+  container.append(panel);
 
-  // Head
-  const head = el("div", { class: "drawer-head" },
-    el("div", { class: "grow" },
-      category ? el("span", { class: "pill subtle" },
-        el("span", { style: { display: "inline-block", width: "8px", height: "8px", borderRadius: "50%", background: category.color, marginRight: "6px" } }),
-        category.name,
-      ) : null,
-      phase ? el("span", { class: "card-meta", style: { marginLeft: "8px" } }, phase.name) : null,
-    ),
-    (() => {
-      const b = el("button", { class: "btn ghost" }, "Close");
-      b.onclick = () => closeDrawer();
-      return b;
-    })(),
-  );
-  node.append(head);
-
-  const body = el("div", { class: "drawer-body" });
-  node.append(body);
-
-  // Title (editable)
-  const titleInput = el("input", { class: "drawer-title", value: task.title });
-  titleInput.onblur = () => saveIfChanged({ title: titleInput.value });
-  body.append(titleInput);
-
-  // Meta line
-  body.append(el("div", { class: "card-meta" },
-    "Last updated " + fmtRelative(task.updated_at),
-  ));
-
-  // Need help toggle
+  // Top row: need-help toggle + meta line
   const helpLabelOn  = "Cancel 'need help'";
   const helpLabelOff = "I need help with this";
   const helpBtn = el("button", { class: "help-toggle" + (task.needs_help ? " on" : "") }, task.needs_help ? helpLabelOn : helpLabelOff);
   helpBtn.onclick = async () => {
-    await patch({ needs_help: !task.needs_help });
-    task.needs_help = !task.needs_help;
-    helpBtn.className = "help-toggle" + (task.needs_help ? " on" : "");
-    helpBtn.textContent = task.needs_help ? helpLabelOn : helpLabelOff;
+    try {
+      await updateTask(task.id, { needs_help: !task.needs_help });
+      task.needs_help = !task.needs_help;
+      helpBtn.className = "help-toggle" + (task.needs_help ? " on" : "");
+      helpBtn.textContent = task.needs_help ? helpLabelOn : helpLabelOff;
+      onChange?.();
+    } catch (err) { toast(err.message, "error"); }
   };
-  body.append(el("div", { style: { margin: "12px 0 4px" } }, helpBtn));
+  panel.append(helpBtn);
 
-  // Meta grid
-  const meta = el("div", { class: "meta-grid" });
-  meta.append(
-    fieldSelect("Status", task.status, STATUS_OPTIONS.map(s => [s, statusLabel(s)]), v => patch({ status: v })),
-    fieldSelect("Priority", task.priority, PRIORITY_OPTIONS.map(p => [p, p]), v => patch({ priority: v })),
-    fieldSelect("Assigned to", task.assigned_to || "both", ASSIGNED_OPTIONS.map(a => [a, assignedLabel(a)]), v => patch({ assigned_to: v })),
-    fieldSelect("Mode", task.mode || "either", MODE_OPTIONS.map(m => [m, modeLabel(m)]), v => patch({ mode: v })),
-    fieldDate("Target date", task.target_date, v => patch({ target_date: v || null })),
-    fieldSelect("Phase", task.phase_id || "", [["", "—"], ...state.phases.map(p => [p.id, p.name])], v => patch({ phase_id: v || null })),
-    fieldSelect("Category", task.category_id || "", [["", "—"], ...state.categories.map(c => [c.id, c.name])], v => patch({ category_id: v || null })),
-    fieldCheck("Can prepare early", task.can_prepare_early, v => patch({ can_prepare_early: v })),
-    fieldCheck("Requires folkbokföring", task.requires_folkbokforing, v => patch({ requires_folkbokforing: v })),
-  );
-  body.append(meta);
+  panel.append(el("div", { class: "detail-meta" }, "Last updated " + fmtRelative(task.updated_at)));
 
   // Explanation
   const expl = el("textarea", { class: "textarea", placeholder: "Short explanation…" }, task.explanation || "");
   expl.onblur = () => saveIfChanged({ explanation: expl.value });
-  body.append(el("div", { class: "field" }, el("label", {}, "Explanation"), expl));
+  panel.append(el("div", { class: "field" }, el("label", {}, "Explanation"), expl));
+
+  // Target date + reference number side by side
+  const twoCol = el("div", { class: "two-col" });
+  const dateInp = el("input", { class: "input", type: "date", value: task.target_date || "" });
+  dateInp.onchange = () => patch({ target_date: dateInp.value || null });
+  const ref = el("input", { class: "input", type: "text", placeholder: "Case / reference number", value: task.reference_number || "" });
+  ref.onblur = () => saveIfChanged({ reference_number: ref.value });
+  twoCol.append(
+    el("div", { class: "field" }, el("label", {}, "Target date"), dateInp),
+    el("div", { class: "field" }, el("label", {}, "Reference / case number"), ref),
+  );
+  panel.append(twoCol);
 
   // Appointment
   const appt = el("input", { class: "input", type: "datetime-local",
@@ -119,62 +84,36 @@ export async function openTaskDrawer(taskId, state, onChange) {
   apptLoc.onblur = () => saveIfChanged({ appointment_location: apptLoc.value });
   const apptNotes = el("textarea", { class: "textarea", placeholder: "Appointment notes" }, task.appointment_notes || "");
   apptNotes.onblur = () => saveIfChanged({ appointment_notes: apptNotes.value });
-  body.append(
-    el("div", { class: "field" }, el("label", {}, "Appointment"), appt),
-    el("div", { class: "field" }, el("label", {}, "Location"), apptLoc),
+  panel.append(
+    el("div", { class: "detail-section-head" }, "Appointment"),
+    el("div", { class: "two-col" },
+      el("div", { class: "field" }, el("label", {}, "When"), appt),
+      el("div", { class: "field" }, el("label", {}, "Where"), apptLoc),
+    ),
     el("div", { class: "field" }, el("label", {}, "Notes"), apptNotes),
   );
 
-  // Reference number
-  const ref = el("input", { class: "input", type: "text", placeholder: "e.g. Skatteverket case number", value: task.reference_number || "" });
-  ref.onblur = () => saveIfChanged({ reference_number: ref.value });
-  body.append(el("div", { class: "field" }, el("label", {}, "Reference / case number"), ref));
-
-  // Dependencies
-  body.append(el("div", { class: "section" },
-    el("div", { class: "section-head" }, el("h2", {}, "Depends on"), el("span", { class: "section-hint" }, `${myDeps.length}`)),
-    myDeps.length
-      ? el("ul", { style: { paddingLeft: "18px", margin: 0 } }, ...myDeps.map(t =>
-          el("li", {},
-            el("a", { href: `#/task/${t.id}`, onClick: (e) => { e.preventDefault(); openTaskDrawer(t.id, state, onChange); } }, t.title),
-            " ",
-            el("span", { class: `pill status-${t.status}`, style: { marginLeft: "6px" } }, statusLabel(t.status)),
-          ),
-        ))
-      : el("div", { class: "empty" }, "No dependencies."),
-  ));
-
-  if (blocks.length) {
-    body.append(el("div", { class: "section" },
-      el("div", { class: "section-head" }, el("h2", {}, "Blocks"), el("span", { class: "section-hint" }, `${blocks.length}`)),
-      el("ul", { style: { paddingLeft: "18px", margin: 0 } }, ...blocks.map(t =>
-        el("li", {},
-          el("a", { href: `#/task/${t.id}`, onClick: (e) => { e.preventDefault(); openTaskDrawer(t.id, state, onChange); } }, t.title),
-        ),
-      )),
-    ));
-  }
-
-  // Subtasks
-  body.append(renderSubtasks(subtasks, taskId));
+  // Checklist
+  panel.append(renderSubtasks(subtasks, task.id));
 
   // Links
-  body.append(renderLinks(links, taskId));
+  panel.append(renderLinks(links, task.id));
 
-  // Comments
-  body.append(renderComments(comments, taskId, state));
+  // Dependencies
+  panel.append(depsSection("Depends on", myDeps));
+  if (blocks.length) panel.append(depsSection("Blocks", blocks));
 
-  // Delete button
-  body.append(el("div", { style: { marginTop: "24px" } },
+  // Comments (with realtime)
+  const commentsSec = renderComments(comments, task.id, state);
+  panel.append(commentsSec);
+
+  // Danger row
+  panel.append(el("div", { class: "detail-danger" },
     (() => {
-      const b = el("button", { class: "btn danger" }, "Delete task");
+      const b = el("button", { class: "btn danger small" }, "Delete task");
       b.onclick = async () => {
         if (!confirm("Delete this task? This can't be undone.")) return;
-        try {
-          await deleteTask(taskId);
-          closeDrawer();
-          onChange();
-        } catch (err) { toast(err.message, "error"); }
+        try { await deleteTask(task.id); onChange?.(); } catch (err) { toast(err.message, "error"); }
       };
       return b;
     })(),
@@ -182,9 +121,9 @@ export async function openTaskDrawer(taskId, state, onChange) {
 
   async function patch(fields) {
     try {
-      const updated = await updateTask(taskId, fields);
+      const updated = await updateTask(task.id, fields);
       Object.assign(task, updated);
-      onChange();
+      onChange?.();
     } catch (err) { toast(err.message, "error"); }
   }
   async function saveIfChanged(fields) {
@@ -194,33 +133,24 @@ export async function openTaskDrawer(taskId, state, onChange) {
   }
 }
 
-function fieldSelect(label, value, options, onChange) {
-  const sel = el("select", { class: "select" });
-  for (const [v, l] of options) {
-    const o = el("option", { value: v }, l);
-    if (String(value) === String(v)) o.selected = true;
-    sel.append(o);
-  }
-  sel.onchange = () => onChange(sel.value);
-  return el("div", { class: "field" }, el("label", {}, label), sel);
+// Called by the board when a detail-row is being removed (row collapsed).
+export function teardownDetail(container) {
+  const unsub = activeSubs.get(container);
+  if (unsub) { try { unsub(); } catch {} activeSubs.delete(container); }
 }
-function fieldDate(label, value, onChange) {
-  const input = el("input", { class: "input", type: "date", value: value || "" });
-  input.onchange = () => onChange(input.value);
-  return el("div", { class: "field" }, el("label", {}, label), input);
-}
-function fieldCheck(label, value, onChange) {
-  const wrap = el("label", { class: "field", style: { flexDirection: "row", alignItems: "center", gap: "8px" } });
-  const cb = el("input", { type: "checkbox" });
-  cb.checked = !!value;
-  cb.onchange = () => onChange(cb.checked);
-  wrap.append(cb, el("span", { style: { color: "var(--muted)", fontSize: "13px" } }, label));
-  return wrap;
+
+function depsSection(title, items) {
+  return el("div", { class: "detail-section" },
+    el("div", { class: "detail-section-head" }, `${title} (${items.length})`),
+    el("ul", { class: "dep-list" }, ...items.map(t =>
+      el("li", {}, t.title, " ", el("span", { class: "dep-status" }, t.status.replace("_", " "))),
+    )),
+  );
 }
 
 function renderSubtasks(initial, taskId) {
-  const section = el("div", { class: "section" },
-    el("div", { class: "section-head" }, el("h2", {}, "Checklist"), el("span", { class: "section-hint" }, `${initial.length}`)),
+  const section = el("div", { class: "detail-section" },
+    el("div", { class: "detail-section-head" }, `Checklist (${initial.length})`),
   );
   const list = el("div");
   section.append(list);
@@ -265,8 +195,8 @@ function renderSubtasks(initial, taskId) {
 }
 
 function renderLinks(initial, taskId) {
-  const section = el("div", { class: "section" },
-    el("div", { class: "section-head" }, el("h2", {}, "Useful links"), el("span", { class: "section-hint" }, `${initial.length}`)),
+  const section = el("div", { class: "detail-section" },
+    el("div", { class: "detail-section-head" }, `Useful links (${initial.length})`),
   );
   const state = { items: [...initial] };
   const list = el("div");
@@ -306,8 +236,8 @@ function renderLinks(initial, taskId) {
 }
 
 function renderComments(initial, taskId, state) {
-  const section = el("div", { class: "section" },
-    el("div", { class: "section-head" }, el("h2", {}, "Comments")),
+  const section = el("div", { class: "detail-section" },
+    el("div", { class: "detail-section-head" }, "Comments"),
   );
   const thread = el("div", { class: "thread" });
   section.append(thread);
@@ -317,7 +247,6 @@ function renderComments(initial, taskId, state) {
     clear(thread);
     if (!items.length) thread.append(el("div", { class: "empty" }, "No comments yet."));
     for (const c of items) thread.append(msg(c));
-
     const input = el("textarea", { class: "textarea", placeholder: "Write a comment…" });
     const send = el("button", { class: "btn primary" }, "Post");
     send.onclick = async () => {
@@ -334,7 +263,7 @@ function renderComments(initial, taskId, state) {
   }
 
   function msg(c) {
-    const author = c.author_id === state.profile?.id ? "You" : nameFor(c.author_id, state);
+    const author = c.author_id === state.profile?.id ? "You" : (c.author_id?.slice(0, 6) + "…");
     return el("div", { class: "msg" },
       el("div", { class: "msg-head" }, el("strong", {}, author), el("span", {}, fmtRelative(c.created_at))),
       el("div", { class: "msg-body" }, c.body),
@@ -343,28 +272,39 @@ function renderComments(initial, taskId, state) {
 
   paint();
 
-  // Live updates
+  // Live comment updates for this task.
   const unsub = subscribeCommentsForTask(taskId, (newRow) => {
     if (!items.find(x => x.id === newRow.id)) { items.push(newRow); paint(); }
   });
-  if (openDrawer) openDrawer.unsubs.push(unsub);
+  activeSubs.set(section, unsub);
 
   return section;
 }
 
-function nameFor(id, state) {
-  // We don't preload all profiles; show a short user-id fallback.
-  return id ? id.slice(0, 6) + "…" : "someone";
+// --- Backward-compat drawer opener (used by /task/:id direct link) --------
+// Just delegates to inline rendering inside a drawer so nothing depends on
+// two separate implementations.
+let openDrawerNode = null;
+export function closeDrawer() {
+  if (openDrawerNode) {
+    openDrawerNode.node.remove();
+    openDrawerNode.backdrop.remove();
+    openDrawerNode = null;
+  }
 }
-
-function assignedLabel(v) {
-  if (v === "linus") return ROLE_LABELS.linus;
-  if (v === "oscar") return ROLE_LABELS.helper;
-  if (v === "both")  return "Both";
-  return "Unassigned";
-}
-function modeLabel(m) {
-  if (m === "online") return "Online";
-  if (m === "in_person") return "In person";
-  return "Either";
+export async function openTaskDrawer(taskId, state, onChange) {
+  closeDrawer();
+  const root = document.getElementById("drawer-root");
+  const backdrop = el("div", { class: "drawer-backdrop" });
+  backdrop.onclick = () => closeDrawer();
+  const node = el("aside", { class: "drawer" });
+  const head = el("div", { class: "drawer-head" },
+    el("div", { class: "grow" }, "Task"),
+    (() => { const b = el("button", { class: "btn ghost small" }, "Close"); b.onclick = () => closeDrawer(); return b; })(),
+  );
+  const body = el("div", { class: "drawer-body" });
+  node.append(head, body);
+  root.append(backdrop, node);
+  openDrawerNode = { node, backdrop };
+  await renderInlineDetail(body, { id: taskId }, state, onChange);
 }

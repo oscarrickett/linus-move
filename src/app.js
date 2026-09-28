@@ -7,9 +7,9 @@ import {
 } from "./store.js";
 import { renderAuth } from "./views/auth.js";
 import { renderHome } from "./views/home.js";
-import { renderBoard, setPhaseFilter } from "./views/board.js";
+import { renderBoard, setPhaseFilter, setExpandedTask } from "./views/board.js";
 import { renderVault } from "./views/vault.js";
-import { openTaskDrawer, closeDrawer } from "./views/task.js";
+import { closeDrawer } from "./views/task.js";
 
 const main       = document.getElementById("main");
 const sideNavPh  = document.getElementById("side-nav-phases");
@@ -210,19 +210,21 @@ function currentRoute() {
 async function route() {
   const r = currentRoute();
   closeDrawer();
-  if (r.name === "home")  renderHome(main, state, appActions);
+  if (r.name === "home")  { setExpandedTask(null); renderHome(main, state, appActions); }
   if (r.name === "board") {
     setPhaseFilter(r.params.phase || "");
     renderBoard(main, state, appActions);
   }
-  if (r.name === "vault") renderVault(main, state);
+  if (r.name === "vault") { setExpandedTask(null); renderVault(main, state); }
   if (r.name === "task") {
-    if (!main.hasChildNodes()) renderBoard(main, state, appActions);
-    openTaskDrawer(r.params.id, state, async () => {
-      state.tasks = await loadTasks();
-      if (currentRoute().name === "board") renderBoard(main, state, appActions);
-      if (currentRoute().name === "home")  renderHome(main, state, appActions);
-      paintSidebar();
+    // Task URLs now expand the row inline on the board.
+    setExpandedTask(r.params.id);
+    setPhaseFilter("");
+    renderBoard(main, state, appActions);
+    // Scroll the expanded row into view once painted.
+    requestAnimationFrame(() => {
+      const row = document.querySelector("tr.expanded");
+      if (row) row.scrollIntoView({ behavior: "smooth", block: "start" });
     });
   }
   paintSidebar();
@@ -233,6 +235,18 @@ window.addEventListener("hashchange", route);
 // ---------- Actions passed to views ----------------------------------------
 const appActions = {
   openTask(id) { location.hash = `#/task/${id}`; },
+  toggleExpand(id) {
+    const r = currentRoute();
+    const isBoard = r.name === "board" || r.name === "task";
+    const currentlyExpanded = r.name === "task" && r.params.id === id;
+    if (currentlyExpanded) {
+      // Collapse -> back to board (preserving phase if any)
+      const q = r.params.phase ? `?phase=${r.params.phase}` : "";
+      location.hash = `#/board${q}`;
+    } else {
+      location.hash = `#/task/${id}`;
+    }
+  },
   updatePhaseHash(slug) { history.replaceState(null, "", slug ? `#/board?phase=${slug}` : "#/board"); paintSidebar(); },
   async refresh() { state.tasks = await loadTasks(); route(); paintSidebar(); },
   async createTask() {
