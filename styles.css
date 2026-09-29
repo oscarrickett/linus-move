@@ -21,13 +21,15 @@
   --accent-strong: var(--se-blue-2);
   --danger:        #ee5b6b;
 
-  --status-not_started:  #4e5773;
-  --status-preparing:    #a76bff;
-  --status-ready:        #3d7cff;
-  --status-in_progress:  #22c1c3;
-  --status-waiting:      #e5a02f;
-  --status-blocked:      #ee5b6b;
+  /* Tuesday-style: To Do (blue), In Progress (orange), Done (green) */
+  --status-not_started:  #3d7cff;
+  --status-in_progress:  #f6a35b;
   --status-completed:    #37c46a;
+  /* Legacy values, in case any linger */
+  --status-preparing:    #4e5773;
+  --status-ready:        #4e5773;
+  --status-waiting:      #4e5773;
+  --status-blocked:      #4e5773;
   --status-not_needed:   #2a2f47;
 
   --pri-low:    #4e5773;
@@ -265,12 +267,11 @@ input, select, textarea { outline: none; }
 .inline-title:hover { border-color: var(--muted); }
 .pill.subtle { background: var(--bg-elev-2); color: var(--text-dim); font-weight: 500; }
 .pill.status-not_started  { background: var(--status-not_started); }
-.pill.status-preparing    { background: var(--status-preparing); }
-.pill.status-ready        { background: var(--status-ready); }
-.pill.status-in_progress  { background: var(--status-in_progress); color: #06122a; }
-.pill.status-waiting      { background: var(--status-waiting); color: #1a1300; }
-.pill.status-blocked      { background: var(--status-blocked); }
+.pill.status-in_progress  { background: var(--status-in_progress); color: #1a0800; }
 .pill.status-completed    { background: var(--status-completed); color: #06180b; }
+.pill.status-preparing, .pill.status-ready, .pill.status-waiting, .pill.status-blocked {
+  background: var(--status-not_started);
+}
 .pill.status-not_needed   { background: var(--status-not_needed); color: var(--muted); }
 .pill.pri-low     { background: var(--pri-low); }
 .pill.pri-medium  { background: var(--pri-medium); }

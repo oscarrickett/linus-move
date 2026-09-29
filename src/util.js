@@ -50,14 +50,13 @@ export function fmtRelative(iso) {
 
 export function statusLabel(s) {
   return {
-    not_started:  "To Do",
-    preparing:    "Prepping",
-    ready:        "Ready",
-    in_progress:  "Working on it",
-    waiting:      "Waiting",
-    blocked:      "Stuck",
-    completed:    "Done",
-    not_needed:   "Skipped",
+    not_started: "To Do",
+    in_progress: "In Progress",
+    completed:   "Done",
+    // Legacy DB values (before the simplification) all render as To Do
+    // if we ever encounter them.
+    preparing: "To Do", ready: "To Do", waiting: "To Do",
+    blocked:   "To Do", not_needed: "To Do",
   }[s] || s;
 }
 
@@ -65,9 +64,7 @@ export function priorityLabel(p) {
   return { urgent: "P1", high: "P2", medium: "P3", low: "P4" }[p] || p;
 }
 
-export const STATUS_OPTIONS = [
-  "not_started","preparing","ready","in_progress","waiting","blocked","completed","not_needed"
-];
+export const STATUS_OPTIONS = ["not_started","in_progress","completed"];
 export const PRIORITY_OPTIONS = ["low","medium","high","urgent"];
 export const ASSIGNED_OPTIONS  = ["linus","oscar","both","unassigned"];
 export const MODE_OPTIONS      = ["either","online","in_person"];

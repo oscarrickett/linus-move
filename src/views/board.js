@@ -468,7 +468,7 @@ function filteredTasks(tasks, catById, phaseById) {
     if (filterState.search && !t.title.toLowerCase().includes(filterState.search.toLowerCase())) return false;
     return true;
   }).sort((a, b) => {
-    const openOrder = { in_progress: 1, ready: 2, preparing: 3, not_started: 4, waiting: 5, blocked: 6, completed: 7, not_needed: 8 };
+    const openOrder = { in_progress: 1, not_started: 2, completed: 3 };
     const oa = openOrder[a.status] || 9;
     const ob = openOrder[b.status] || 9;
     if (oa !== ob) return oa - ob;
