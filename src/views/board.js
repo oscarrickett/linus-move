@@ -1,10 +1,13 @@
-import { el, clear, fmtRelative, fmtDate, daysBetween, statusLabel, toast, STATUS_OPTIONS, PRIORITY_OPTIONS, ASSIGNED_OPTIONS } from "../util.js";
+import { el, clear, fmtRelative, fmtDate, daysBetween, statusLabel, priorityLabel, toast, STATUS_OPTIONS, PRIORITY_OPTIONS, ASSIGNED_OPTIONS } from "../util.js";
 import { ROLE_LABELS } from "../config.js";
-import { updateTask } from "../store.js";
+import { updateTask, deleteTask } from "../store.js";
 import { renderInlineDetail, teardownDetail } from "./task.js";
 
 let expandedTaskId = null;
 export function setExpandedTask(id) { expandedTaskId = id; }
+
+const selected = new Set();     // task ids currently checked
+let currentActions = null;      // last-passed actions, used by bulk bar
 
 // Filter state persisted per session
 const filterState = {
@@ -19,17 +22,20 @@ const filterState = {
   search: "",
 };
 
-const collapsed = new Set();  // category ids that are collapsed
-
 export function setPhaseFilter(slug) { filterState.phase = slug || ""; }
 
 export function renderBoard(root, state, actions) {
+  currentActions = actions;
   clear(root);
   const { tasks, phases, categories } = state;
 
   const phaseBySlug = new Map(phases.map(p => [p.slug, p]));
   const catById     = new Map(categories.map(c => [c.id, c]));
   const phaseById   = new Map(phases.map(p => [p.id, p]));
+
+  // Prune selection to tasks that still exist
+  const validIds = new Set(tasks.map(t => t.id));
+  for (const id of [...selected]) if (!validIds.has(id)) selected.delete(id);
 
   const phaseObj = filterState.phase ? phaseBySlug.get(filterState.phase) : null;
   const filtered = filteredTasks(tasks, catById, phaseById);
@@ -46,7 +52,6 @@ export function renderBoard(root, state, actions) {
     (() => { const b = el("button", { class: "btn primary" }, el("span", { class: "plus" }, "+"), "New"); b.onclick = () => actions.createTask(); return b; })(),
     personFilterBtn(() => renderBody()),
     filterBtn(categories, () => renderBody()),
-    sortBtn(() => renderBody()),
     activeFiltersChips(() => renderBody()),
     (() => {
       const wrap = el("div", { class: "search-wrap" });
@@ -59,12 +64,37 @@ export function renderBoard(root, state, actions) {
   );
   root.append(toolbar);
 
+  const bulkBar = el("div", { class: "bulk-bar", hidden: selected.size === 0 });
+  root.append(bulkBar);
+
   const body = el("div");
   root.append(body);
   renderBody();
 
+  function renderBulkBar() {
+    clear(bulkBar);
+    if (selected.size === 0) { bulkBar.hidden = true; return; }
+    bulkBar.hidden = false;
+    bulkBar.append(
+      el("span", { class: "bulk-count" }, `${selected.size} selected`),
+      (() => { const b = el("button", { class: "btn small danger" }, "Delete"); b.onclick = bulkDelete; return b; })(),
+      (() => { const b = el("button", { class: "btn small ghost" }, "Cancel"); b.onclick = () => { selected.clear(); renderBody(); }; return b; })(),
+    );
+  }
+
+  async function bulkDelete() {
+    const n = selected.size;
+    if (!confirm(`Delete ${n} task${n === 1 ? "" : "s"}? This can't be undone.`)) return;
+    try {
+      for (const id of [...selected]) await deleteTask(id);
+      selected.clear();
+      await actions.refresh();
+    } catch (err) { toast(err.message, "error"); }
+  }
+
   function renderBody() {
     clear(body);
+    renderBulkBar();
     const list = filteredTasks(tasks, catById, phaseById);
     root.querySelector(".page-sub").textContent = `${list.length} of ${tasks.length}`;
 
@@ -85,22 +115,15 @@ export function renderBoard(root, state, actions) {
   }
 
   function renderGroup(cat, items) {
-    const isCollapsed = collapsed.has(cat?.id);
     const group = el("div", { class: "group" });
-    const head = el("div", { class: "group-head" + (isCollapsed ? " collapsed" : "") });
+    const head = el("div", { class: "group-head" });
     head.append(
       el("span", { class: "caret" }, "▾"),
       el("span", { class: "cat-bar", style: { background: cat?.color || "#4e5773" } }),
       el("h3", {}, cat?.name || "Uncategorised"),
       el("span", { class: "group-count" }, `${items.length} item${items.length === 1 ? "" : "s"}`),
     );
-    head.onclick = () => {
-      if (isCollapsed) collapsed.delete(cat.id); else collapsed.add(cat.id);
-      renderBody();
-    };
     group.append(head);
-
-    if (isCollapsed) return group;
 
     const bodyEl = el("div", { class: "group-body" });
     const tbody = el("tbody");
@@ -111,12 +134,26 @@ export function renderBoard(root, state, actions) {
     const table = el("table", { class: "table" },
       el("thead", {},
         el("tr", {},
-          el("th", { style: { width: "45%" } }, "Task"),
+          el("th", { class: "col-check" },
+            (() => {
+              const cb = el("input", { type: "checkbox" });
+              cb.checked = items.length > 0 && items.every(t => selected.has(t.id));
+              cb.onclick = (e) => {
+                e.stopPropagation();
+                if (cb.checked) items.forEach(t => selected.add(t.id));
+                else items.forEach(t => selected.delete(t.id));
+                renderBody();
+              };
+              return cb;
+            })(),
+          ),
+          el("th", { style: { width: "38%" } }, "Task"),
           el("th", {}, "Phase"),
           el("th", {}, "Status"),
           el("th", {}, "Priority"),
           el("th", {}, "Person"),
           el("th", {}, "Updated"),
+          el("th", { class: "col-actions" }, ""),
         ),
       ),
       tbody,
@@ -126,9 +163,9 @@ export function renderBoard(root, state, actions) {
     const foot = el("div", { class: "group-foot" }, "+ Add task in this category");
     foot.onclick = (e) => {
       e.stopPropagation();
-      const title = prompt(`New task in ${cat.name}`);
+      const title = prompt(`New task in ${cat?.name || "category"}`);
       if (!title || !title.trim()) return;
-      actions.createTaskIn({ title: title.trim(), category_id: cat.id });
+      actions.createTaskIn({ title: title.trim(), category_id: cat?.id });
     };
     bodyEl.append(foot);
 
@@ -139,56 +176,97 @@ export function renderBoard(root, state, actions) {
   function taskRow(t, phaseById) {
     const overdue = t.target_date && daysBetween(new Date(), t.target_date) < 0 && !["completed","not_needed"].includes(t.status);
 
-    // Inline title editing
+    // Selection checkbox
+    const checkCell = el("td", { class: "col-check" });
+    const cb = el("input", { type: "checkbox" });
+    cb.checked = selected.has(t.id);
+    cb.onclick = (e) => {
+      e.stopPropagation();
+      if (cb.checked) selected.add(t.id); else selected.delete(t.id);
+      renderBody();
+    };
+    checkCell.append(cb);
+    checkCell.onclick = (e) => e.stopPropagation();
+
+    // Inline title edit
     const titleCell = el("td", { class: "col-title" });
-    const titleSpan = el("span", { class: "inline-title" }, t.title);
-    titleSpan.title = "Double-click to rename";
+    const titleSpan = el("span", { class: "inline-title", title: "Double-click to rename" }, t.title);
     titleSpan.ondblclick = (e) => { e.stopPropagation(); editInlineTitle(titleSpan, t); };
     titleCell.append(titleSpan);
     if (t.needs_help)             titleCell.append(el("span", { class: "help-flag" }, "needs help"));
     if (t.requires_folkbokforing) titleCell.append(el("small", {}, "requires folkbokföring"));
 
-    // Inline phase pill
     const phase = phaseById.get(t.phase_id);
     const phasePill = el("span", { class: "pill subtle inline-edit", title: "Click to change phase" }, phase?.name || "—");
     phasePill.onclick = (e) => { e.stopPropagation(); pickOne(phasePill, [["", "—"], ...state.phases.map(p => [p.id, p.name])], t.phase_id, v => save(t, { phase_id: v || null })); };
 
-    // Inline status pill
     const statusPill = el("span", { class: `pill status-${t.status} inline-edit`, title: "Click to change status" }, statusLabel(t.status));
     statusPill.onclick = (e) => { e.stopPropagation(); pickOne(statusPill, STATUS_OPTIONS.map(s => [s, statusLabel(s)]), t.status, v => save(t, { status: v })); };
 
-    // Inline priority pill
-    const prioPill = el("span", { class: `pill pri-${t.priority} inline-edit`, title: "Click to change priority" }, t.priority);
-    prioPill.onclick = (e) => { e.stopPropagation(); pickOne(prioPill, PRIORITY_OPTIONS.map(p => [p, p]), t.priority, v => save(t, { priority: v })); };
+    const prioPill = el("span", { class: `pill pri-${t.priority} inline-edit`, title: "Click to change priority" }, priorityLabel(t.priority));
+    prioPill.onclick = (e) => { e.stopPropagation(); pickOne(prioPill, PRIORITY_OPTIONS.map(p => [p, priorityLabel(p)]), t.priority, v => save(t, { priority: v })); };
 
-    // Inline person avatar
     const personCell = personChip(t.assigned_to);
     personCell.classList.add("inline-edit");
     personCell.title = "Click to reassign";
     personCell.onclick = (e) => { e.stopPropagation(); pickOne(personCell, ASSIGNED_OPTIONS.map(a => [a, personLabelFor(a)]), t.assigned_to, v => save(t, { assigned_to: v })); };
 
+    // Per-row action menu (visible on hover, always clickable)
+    const actionBtn = el("button", { class: "row-actions-btn", title: "Actions", "aria-label": "Row actions" }, "⋯");
+    actionBtn.onclick = (e) => { e.stopPropagation(); openRowMenu(actionBtn, t); };
+
     const isExpanded = t.id === expandedTaskId;
     const tr = el("tr", { class: (overdue ? "overdue " : "") + (isExpanded ? "expanded" : "") },
+      checkCell,
       titleCell,
       el("td", { class: "col-meta" }, phasePill),
       el("td", {}, statusPill),
       el("td", {}, prioPill),
       el("td", {}, personCell),
       el("td", { class: "col-meta" }, fmtRelative(t.updated_at)),
+      el("td", { class: "col-actions" }, actionBtn),
     );
     tr.onclick = () => actions.toggleExpand(t.id);
+    tr.oncontextmenu = (e) => { e.preventDefault(); openRowMenu(actionBtn, t); };
     return tr;
   }
 
   function detailRow(t) {
-    const holder = el("td", { colspan: "6", class: "detail-cell" });
+    const holder = el("td", { colspan: "8", class: "detail-cell" });
     const container = el("div", { class: "detail-container" });
     holder.append(container);
-    // Render asynchronously; container starts with a loading state.
     renderInlineDetail(container, t, state, () => actions.refresh());
     const row = el("tr", { class: "detail-row" }, holder);
-    row.onclick = e => e.stopPropagation();  // clicks inside don't collapse
+    row.onclick = e => e.stopPropagation();
     return row;
+  }
+
+  function openRowMenu(anchor, t) {
+    popoverFrom(anchor, ({ close }) => {
+      const wrap = el("div", { class: "row-menu" });
+      const item = (label, cls = "") => {
+        const b = el("button", { class: "row-menu-item " + cls }, label);
+        return b;
+      };
+      const openItem = item("Open");
+      openItem.onclick = () => { close(); actions.openTask(t.id); };
+      const dupItem = item("Duplicate");
+      dupItem.onclick = async () => {
+        close();
+        try {
+          await actions.createTaskIn({ title: (t.title || "Task") + " (copy)", category_id: t.category_id, phase_id: t.phase_id });
+        } catch (err) { toast(err.message, "error"); }
+      };
+      const delItem = item("Delete", "danger");
+      delItem.onclick = async () => {
+        close();
+        if (!confirm(`Delete "${t.title}"? This can't be undone.`)) return;
+        try { await deleteTask(t.id); await actions.refresh(); }
+        catch (err) { toast(err.message, "error"); }
+      };
+      wrap.append(openItem, dupItem, el("div", { class: "row-menu-sep" }), delItem);
+      return wrap;
+    });
   }
 
   function editInlineTitle(span, task) {
@@ -205,8 +283,7 @@ export function renderBoard(root, state, actions) {
           task.title = val;
         } catch (err) { toast(err.message, "error"); }
       }
-      const newSpan = el("span", { class: "inline-title" }, task.title);
-      newSpan.title = "Double-click to rename";
+      const newSpan = el("span", { class: "inline-title", title: "Double-click to rename" }, task.title);
       newSpan.ondblclick = (e) => { e.stopPropagation(); editInlineTitle(newSpan, task); };
       input.replaceWith(newSpan);
       if (save) actions.refresh();
@@ -238,7 +315,7 @@ function personChip(v) {
     oscar:  "avatar-oscar",
     both:   "avatar-both",
   }[v] || "avatar-none";
-  const initial = { linus: "L", oscar: "O", both: "LO" }[v] || "—";
+  const initial = { linus: "L", oscar: "O", both: "LO" }[v] || "+";
   const label = v === "linus" ? ROLE_LABELS.linus : v === "oscar" ? ROLE_LABELS.helper : v === "both" ? "Both" : "Unassigned";
   return el("span", { class: "avatar" },
     el("span", { class: `avatar-dot ${cls}` }, initial),
@@ -258,15 +335,12 @@ function personFilterBtn(onChange) {
   b.onclick = (e) => {
     e.stopPropagation();
     popoverFrom(b, ({ close }) => {
-      const wrap = el("div", { style: { display: "flex", flexDirection: "column", gap: "6px" } });
+      const wrap = el("div", { style: { display: "flex", flexDirection: "column", gap: "2px" } });
       const opts = [["", "Anyone"], ["linus", ROLE_LABELS.linus], ["oscar", ROLE_LABELS.helper], ["both", "Both"]];
       for (const [val, label] of opts) {
         const item = el("button", {
-          class: "btn ghost",
-          style: {
-            justifyContent: "flex-start",
-            background: filterState.assigned === val ? "var(--bg-elev-2)" : "",
-          },
+          class: "row-menu-item",
+          style: { background: filterState.assigned === val ? "var(--bg-elev-2)" : "" },
         }, label);
         item.onclick = () => { filterState.assigned = val; close(); onChange(); };
         wrap.append(item);
@@ -289,8 +363,8 @@ function filterBtn(categories, onChange) {
       const wrap = el("div", { style: { display: "flex", flexDirection: "column", gap: "10px", minWidth: "280px" } });
       wrap.append(
         selectField("Category", filterState.category, [["", "All categories"], ...categories.map(c => [c.id, c.name])], v => filterState.category = v),
-        selectField("Status", filterState.status, [["", "Any status"], ...["not_started","preparing","ready","in_progress","waiting","blocked","completed","not_needed"].map(s => [s, statusLabel(s)])], v => filterState.status = v),
-        selectField("Priority", filterState.priority, [["", "Any"], ["urgent","Urgent"], ["high","High"], ["medium","Medium"], ["low","Low"]], v => filterState.priority = v),
+        selectField("Status", filterState.status, [["", "Any status"], ...STATUS_OPTIONS.map(s => [s, statusLabel(s)])], v => filterState.status = v),
+        selectField("Priority", filterState.priority, [["", "Any"], ...PRIORITY_OPTIONS.map(p => [p, priorityLabel(p)])], v => filterState.priority = v),
         selectField("Mode", filterState.mode, [["", "Any"], ["online","Online"], ["in_person","In person"], ["either","Either"]], v => filterState.mode = v),
         checkField("Needs help", filterState.needsHelp, v => filterState.needsHelp = v),
         checkField("Requires folkbokföring", filterState.requiresFolk, v => filterState.requiresFolk = v),
@@ -309,17 +383,6 @@ function filterBtn(categories, onChange) {
       return wrap;
     });
   };
-  return b;
-}
-
-function sortBtn(onChange) {
-  // (Sort just returns a stable list right now; expose the picker for parity/discoverability.)
-  const b = el("button", { class: "btn" },
-    el("span", { class: "icon" }, "⇅"),
-    "Sort",
-  );
-  b.onclick = () => {};  // no-op for now; sort is fixed to status/priority/updated
-  b.title = "Sorted by status then priority";
   return b;
 }
 
@@ -374,17 +437,13 @@ function popoverFrom(anchorBtn, build) {
   });
 }
 
-// Small option-picker popover shared by all inline pills.
 function pickOne(anchor, options, currentValue, onPick) {
   popoverFrom(anchor, ({ close }) => {
-    const wrap = el("div", { style: { display: "flex", flexDirection: "column", gap: "2px", minWidth: "180px" } });
+    const wrap = el("div", { class: "row-menu" });
     for (const [val, label] of options) {
       const item = el("button", {
-        class: "btn ghost",
-        style: {
-          justifyContent: "flex-start",
-          background: String(currentValue) === String(val) ? "var(--bg-elev-2)" : "",
-        },
+        class: "row-menu-item",
+        style: { background: String(currentValue) === String(val) ? "var(--bg-elev-2)" : "" },
       }, label);
       item.onclick = (e) => { e.stopPropagation(); close(); onPick(val); };
       wrap.append(item);

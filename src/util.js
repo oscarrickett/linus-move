@@ -50,19 +50,19 @@ export function fmtRelative(iso) {
 
 export function statusLabel(s) {
   return {
-    not_started:  "Not started",
-    preparing:    "Preparing",
-    ready:        "Ready to do",
-    in_progress:  "In progress",
+    not_started:  "To Do",
+    preparing:    "Prepping",
+    ready:        "Ready",
+    in_progress:  "Working on it",
     waiting:      "Waiting",
-    blocked:      "Blocked",
-    completed:    "Completed",
-    not_needed:   "Not needed",
+    blocked:      "Stuck",
+    completed:    "Done",
+    not_needed:   "Skipped",
   }[s] || s;
 }
 
 export function priorityLabel(p) {
-  return { low: "Low", medium: "Medium", high: "High", urgent: "Urgent" }[p] || p;
+  return { urgent: "P1", high: "P2", medium: "P3", low: "P4" }[p] || p;
 }
 
 export const STATUS_OPTIONS = [
