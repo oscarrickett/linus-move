@@ -4,7 +4,7 @@
 //
 // Run:  SUPABASE_SECRET=sb_secret_... node supabase/reseed.mjs
 
-const BASE = "https://alomimvbbovjjjlwfxyq.supabase.co/rest/v1";
+const BASE = "https://ayndagcdgzqwwhalzixy.supabase.co/rest/v1";
 const SEC  = process.env.SUPABASE_SECRET;
 if (!SEC) { console.error("Set SUPABASE_SECRET"); process.exit(1); }
 

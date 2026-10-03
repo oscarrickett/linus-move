@@ -21,7 +21,7 @@ missing `delete_repo` scope so I couldn't finish the delete. Either:
   ```
 
 The repo is private, archived (read-only), and contains no personal data
-(only the app code and the `alomimvbbovjjjlwfxyq` Supabase project ID,
+(only the app code and the `ayndagcdgzqwwhalzixy` Supabase project ID,
 which is a URL not a secret).
 
 ## 1. Get the code onto your other computer
@@ -73,7 +73,7 @@ share via a tunnel like Cloudflare Tunnel.
 
 ## 3. Run the two SQL files in Supabase (2 min)
 
-Open <https://supabase.com/dashboard/project/alomimvbbovjjjlwfxyq/sql/new>
+Open <https://supabase.com/dashboard/project/ayndagcdgzqwwhalzixy/sql/new>
 
 - Paste the contents of `supabase/schema.sql`, click **Run**.
 - Open a fresh SQL query, paste `supabase/seed.sql`, click **Run**.
@@ -82,7 +82,7 @@ Both files are idempotent, so a re-run is safe.
 
 ## 4. Paste the anon key into `src/config.js` (30 sec)
 
-Open <https://supabase.com/dashboard/project/alomimvbbovjjjlwfxyq/settings/api>
+Open <https://supabase.com/dashboard/project/ayndagcdgzqwwhalzixy/settings/api>
 
 Copy the **anon public** key (the long JWT, NOT the `service_role` key).
 Open `src/config.js` and replace `PASTE-ANON-KEY-HERE` with the key.
@@ -108,7 +108,7 @@ Open <http://localhost:8080>. You should see the sign-in screen.
 
 ## 6. Invite yourself + Linus, then promote Linus (3 min)
 
-Open <https://supabase.com/dashboard/project/alomimvbbovjjjlwfxyq/auth/users>
+Open <https://supabase.com/dashboard/project/ayndagcdgzqwwhalzixy/auth/users>
 
 Click **Add user → Invite user**, invite your own email first. Set the
 display name to "Oscar" when you sign up. Then invite Linus at his email.
